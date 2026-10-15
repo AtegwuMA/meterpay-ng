@@ -22,7 +22,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
 - [x] **M0-02 Local infrastructure.** `docker-compose.yml` with Postgres 16, Redis 7, Kafka (KRaft). `application.yml` + `application-local.yml`. `.env.example`.
   - Done when: `docker compose up -d` then `./mvnw spring-boot:run -Dspring-boot.run.profiles=local` starts and `/actuator/health` is UP.
   - Commit: `chore: add docker compose for postgres, redis and kafka`
-- [ ] **M0-03 Flyway baseline.** `V1__baseline.sql` (extensions only: `pgcrypto`). `ddl-auto=validate` in all profiles.
+- [x] **M0-03 Flyway baseline.** `V1__baseline.sql` (extensions only: `pgcrypto`). `ddl-auto=validate` in all profiles.
   - Commit: `chore(db): add flyway baseline migration`
 - [ ] **M0-04 Testcontainers base.** Abstract `IntegrationTest` with singleton Postgres, Redis, Kafka containers and `@ServiceConnection`. Maven Surefire for `*Test`, Failsafe for `*IT`.
   - Done when: a sample IT starts all three containers and passes.

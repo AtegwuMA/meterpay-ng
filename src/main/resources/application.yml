@@ -7,6 +7,9 @@ spring:
     password: ${POSTGRES_PASSWORD:}
   jpa:
     open-in-view: false
+    hibernate:
+      # Flyway owns the schema. Hibernate only checks that entities match it.
+      ddl-auto: validate
   data:
     redis:
       host: ${REDIS_HOST:localhost}
