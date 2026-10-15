@@ -19,7 +19,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
 - [x] **M0-01 Project skeleton.** Spring Boot app via Maven wrapper, Java 21, base package `com.theodomart.energy`, dependencies: web, validation, data-jpa, security, actuator, flyway, postgresql, data-redis, kafka, springdoc, lombok (optional). `.gitignore`, `.editorconfig`.
   - Done when: `./mvnw verify` passes with a context-loads test.
   - Commit: `chore: bootstrap spring boot project`
-- [ ] **M0-02 Local infrastructure.** `docker-compose.yml` with Postgres 16, Redis 7, Kafka (KRaft). `application.yml` + `application-local.yml`. `.env.example`.
+- [x] **M0-02 Local infrastructure.** `docker-compose.yml` with Postgres 16, Redis 7, Kafka (KRaft). `application.yml` + `application-local.yml`. `.env.example`.
   - Done when: `docker compose up -d` then `./mvnw spring-boot:run -Dspring-boot.run.profiles=local` starts and `/actuator/health` is UP.
   - Commit: `chore: add docker compose for postgres, redis and kafka`
 - [ ] **M0-03 Flyway baseline.** `V1__baseline.sql` (extensions only: `pgcrypto`). `ddl-auto=validate` in all profiles.

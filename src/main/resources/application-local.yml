@@ -1,0 +1,13 @@
+spring:
+  config:
+    # Lets one .env drive both docker compose and the app, so ports never drift apart.
+    import: optional:file:.env[.properties]
+  datasource:
+    password: ${POSTGRES_PASSWORD:meterpay}
+  kafka:
+    bootstrap-servers: localhost:${KAFKA_PORT:9092}
+
+management:
+  endpoint:
+    health:
+      show-details: always
