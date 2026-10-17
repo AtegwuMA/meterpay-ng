@@ -27,7 +27,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
 - [x] **M0-04 Testcontainers base.** Abstract `IntegrationTest` with singleton Postgres, Redis, Kafka containers and `@ServiceConnection`. Maven Surefire for `*Test`, Failsafe for `*IT`.
   - Done when: a sample IT starts all three containers and passes.
   - Commit: `test: add testcontainers integration test base`
-- [ ] **M0-05 Common value types.** `Money` (kobo, non-negative factory, add, subtract, format as ₦) and `Energy` (Wh). Full unit tests including overflow and negative cases.
+- [x] **M0-05 Common value types.** `Money` (kobo, non-negative factory, add, subtract, format as ₦) and `Energy` (Wh). Full unit tests including overflow and negative cases.
   - Commit: `feat(common): add Money and Energy value types`
 - [ ] **M0-06 Global error handling.** `GlobalExceptionHandler` producing ProblemDetail per DESIGN §10 with `code` and `traceId`. Base `DomainException` with `ErrorCode` enum.
   - Done when: `@WebMvcTest` covers 400 validation, 404, 409, 500 bodies.
