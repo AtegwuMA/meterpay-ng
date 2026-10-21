@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.theodomart.energy.common.web.CorrelationIdFilter;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
@@ -154,7 +155,7 @@ class GlobalExceptionHandlerTest {
 
 	@Test
 	void traceIdComesFromCorrelationIdInMdc() throws Exception {
-		MDC.put(GlobalExceptionHandler.TRACE_ID_MDC_KEY, "a1b2c3d4");
+		MDC.put(CorrelationIdFilter.MDC_KEY, "a1b2c3d4");
 
 		mvc.perform(get("/test/boom")).andExpect(jsonPath("$.traceId").value("a1b2c3d4"));
 		mvc.perform(get("/test/does-not-exist")).andExpect(jsonPath("$.traceId").value("a1b2c3d4"));

@@ -25,3 +25,8 @@ management:
     web:
       exposure:
         include: health,info
+
+logging:
+  pattern:
+    # Slots into Spring Boot's default Logback pattern, so every line carries the request's ID.
+    correlation: "[%X{correlationId:-}] "

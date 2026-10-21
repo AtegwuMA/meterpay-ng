@@ -1,5 +1,6 @@
 package com.theodomart.energy.common.error;
 
+import com.theodomart.energy.common.web.CorrelationIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
@@ -29,9 +30,6 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
-
-	/** MDC key populated by the correlation ID filter (M0-07). */
-	public static final String TRACE_ID_MDC_KEY = "correlationId";
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
@@ -125,10 +123,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return ResponseEntity.status(code.status()).body(problem);
 	}
 
-	// Until the correlation filter exists (M0-07) there may be nothing in the MDC. A generated ID still
-	// ties the response to the server log line for that error.
+	// CorrelationIdFilter fills the MDC for every HTTP request. The fallback only covers code paths that
+	// bypass the filter, and still ties the response to the server log line for that error.
 	private static String traceId() {
-		String fromMdc = MDC.get(TRACE_ID_MDC_KEY);
+		String fromMdc = MDC.get(CorrelationIdFilter.MDC_KEY);
 		return fromMdc != null ? fromMdc : UUID.randomUUID().toString();
 	}
 

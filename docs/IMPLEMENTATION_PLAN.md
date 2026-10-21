@@ -32,7 +32,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
 - [x] **M0-06 Global error handling.** `GlobalExceptionHandler` producing ProblemDetail per DESIGN §10 with `code` and `traceId`. Base `DomainException` with `ErrorCode` enum.
   - Done when: `@WebMvcTest` covers 400 validation, 404, 409, 500 bodies.
   - Commit: `feat(common): add RFC 9457 problem details error handling`
-- [ ] **M0-07 Correlation ID.** Filter reading or generating `X-Correlation-Id`, MDC, response header. Logback pattern includes it.
+- [x] **M0-07 Correlation ID.** Filter reading or generating `X-Correlation-Id`, MDC, response header. Logback pattern includes it.
   - Commit: `feat(common): propagate correlation id through requests and logs`
 - [ ] **M0-08 ArchUnit rules.** Rules 1 to 5 from DESIGN §5.2 (rules that have no classes yet pass trivially with `allowEmptyShould(true)`).
   - Commit: `test(arch): enforce module and service layer boundaries`
