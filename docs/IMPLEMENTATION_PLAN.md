@@ -29,7 +29,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
   - Commit: `test: add testcontainers integration test base`
 - [x] **M0-05 Common value types.** `Money` (kobo, non-negative factory, add, subtract, format as ₦) and `Energy` (Wh). Full unit tests including overflow and negative cases.
   - Commit: `feat(common): add Money and Energy value types`
-- [ ] **M0-06 Global error handling.** `GlobalExceptionHandler` producing ProblemDetail per DESIGN §10 with `code` and `traceId`. Base `DomainException` with `ErrorCode` enum.
+- [x] **M0-06 Global error handling.** `GlobalExceptionHandler` producing ProblemDetail per DESIGN §10 with `code` and `traceId`. Base `DomainException` with `ErrorCode` enum.
   - Done when: `@WebMvcTest` covers 400 validation, 404, 409, 500 bodies.
   - Commit: `feat(common): add RFC 9457 problem details error handling`
 - [ ] **M0-07 Correlation ID.** Filter reading or generating `X-Correlation-Id`, MDC, response header. Logback pattern includes it.
