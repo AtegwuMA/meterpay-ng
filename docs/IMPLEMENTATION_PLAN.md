@@ -34,7 +34,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
   - Commit: `feat(common): add RFC 9457 problem details error handling`
 - [x] **M0-07 Correlation ID.** Filter reading or generating `X-Correlation-Id`, MDC, response header. Logback pattern includes it.
   - Commit: `feat(common): propagate correlation id through requests and logs`
-- [ ] **M0-08 ArchUnit rules.** Rules 1 to 5 from DESIGN §5.2 (rules that have no classes yet pass trivially with `allowEmptyShould(true)`).
+- [x] **M0-08 ArchUnit rules.** Rules 1 to 5 from DESIGN §5.2 (rules that have no classes yet pass trivially with `allowEmptyShould(true)`).
   - Commit: `test(arch): enforce module and service layer boundaries`
 - [ ] **M0-09 CI pipeline.** GitHub Actions: JDK 21, Maven cache, `./mvnw verify`, upload JaCoCo report. Spotless check. JaCoCo rule (start at 60%, raised to 75% in M8).
   - Commit: `ci: add github actions build with coverage report`
