@@ -25,7 +25,13 @@ class FlywayBaselineIT extends IntegrationTest {
 
 	@Test
 	void baselineMigrationIsApplied() {
-		assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
+		// Not "current version is 1": that breaks the moment V2 exists. V1 applied and nothing pending is the point.
+		assertThat(flyway.info().applied())
+			.anySatisfy(m -> {
+				assertThat(m.getVersion().getVersion()).isEqualTo("1");
+				assertThat(m.getDescription()).isEqualTo("baseline");
+				assertThat(m.getState().isApplied()).isTrue();
+			});
 		assertThat(flyway.info().pending()).isEmpty();
 	}
 

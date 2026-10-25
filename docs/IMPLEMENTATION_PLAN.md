@@ -43,7 +43,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
 
 ## M1: Identity and property (week 2)
 
-- [ ] **M1-01 Users table and entity.** `V2__users.sql`, `User` entity, roles, repository. Repository IT checks unique email/phone constraints.
+- [x] **M1-01 Users table and entity.** `V2__users.sql`, `User` entity, roles, repository. Repository IT checks unique email/phone constraints.
   - Commit: `feat(identity): add user entity and migration`
 - [ ] **M1-02 Registration and login.** `POST /auth/register` (landlord only for now), `POST /auth/login`, BCrypt, JWT access token issuance and filter, `GET /me`.
   - Done when: IT registers, logs in, calls `/me`; wrong password gives 401 problem detail.
