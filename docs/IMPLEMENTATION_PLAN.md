@@ -38,7 +38,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
   - Commit: `test(arch): enforce module and service layer boundaries`
 - [x] **M0-09 CI pipeline.** GitHub Actions: JDK 21, Maven cache, `./mvnw verify`, upload JaCoCo report. Spotless check. JaCoCo rule (start at 60%, raised to 75% in M8).
   - Commit: `ci: add github actions build with coverage report`
-- [ ] **M0-10 ADR scaffolding.** `docs/adr/0000-template.md`, ADR-0001 (modular monolith, Spring Boot version chosen) and ADR-0002 (integer minor units).
+- [x] **M0-10 ADR scaffolding.** `docs/adr/0000-template.md`, ADR-0001 (modular monolith, Spring Boot version chosen) and ADR-0002 (integer minor units).
   - Commit: `docs(adr): record modular monolith and integer money decisions`
 
 ## M1: Identity and property (week 2)
