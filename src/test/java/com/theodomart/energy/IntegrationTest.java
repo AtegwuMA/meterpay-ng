@@ -2,6 +2,7 @@ package com.theodomart.energy;
 
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -11,6 +12,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * versions as local development.
  */
 @SpringBootTest
+@ActiveProfiles("test")
 public abstract class IntegrationTest {
 
 	// Singleton containers: started once per JVM, not per class. @Container would stop them after

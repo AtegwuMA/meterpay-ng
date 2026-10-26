@@ -26,6 +26,15 @@ management:
       exposure:
         include: health,info
 
+meterpay:
+  security:
+    jwt:
+      # No default on purpose: without JWT_SECRET the app refuses to start (see JwtProperties).
+      secret: ${JWT_SECRET:}
+      access-token-ttl: 15m
+      issuer: meterpay
+    bcrypt-strength: 12
+
 logging:
   pattern:
     # Slots into Spring Boot's default Logback pattern, so every line carries the request's ID.

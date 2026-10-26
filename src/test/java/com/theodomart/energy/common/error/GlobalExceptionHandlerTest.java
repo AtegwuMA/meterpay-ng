@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 // Slice test: only the MVC layer and this advice are loaded, no database or Docker.
 // Security filters are off because this test is about error bodies, not authentication.
-@WebMvcTest
+@WebMvcTest(controllers = GlobalExceptionHandlerTest.ThrowingController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandlerTest.ThrowingController.class)
 class GlobalExceptionHandlerTest {

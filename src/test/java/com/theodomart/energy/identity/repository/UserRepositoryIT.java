@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.theodomart.energy.IntegrationTest;
-import com.theodomart.energy.identity.domain.Role;
+import com.theodomart.energy.common.domain.Role;
 import com.theodomart.energy.identity.domain.User;
 import com.theodomart.energy.identity.domain.UserStatus;
 import jakarta.persistence.EntityManager;

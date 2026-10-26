@@ -19,6 +19,7 @@ public enum ErrorCode {
 	UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported media type"),
 	ILLEGAL_STATE_TRANSITION(HttpStatus.CONFLICT, "Illegal state transition"),
 	CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "Concurrent modification"),
+	DUPLICATE_ACCOUNT(HttpStatus.CONFLICT, "Account already exists"),
 	IDEMPOTENCY_KEY_REUSED(HttpStatus.UNPROCESSABLE_CONTENT, "Idempotency key reused"),
 	INSUFFICIENT_WALLET_BALANCE(HttpStatus.UNPROCESSABLE_CONTENT, "Insufficient wallet balance"),
 	METER_NOT_OPERATIONAL(HttpStatus.UNPROCESSABLE_CONTENT, "Meter not operational"),

@@ -1,5 +1,6 @@
 package com.theodomart.energy.identity.domain;
 
+import com.theodomart.energy.common.domain.Role;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
