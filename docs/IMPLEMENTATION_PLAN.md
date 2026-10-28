@@ -51,7 +51,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
 - [x] **M1-03 Refresh token rotation.** `refresh_tokens` table, rotate on use, family revocation on reuse, logout.
   - Done when: test proves reusing a rotated token revokes the family.
   - Commit: `feat(identity): rotate refresh tokens with reuse detection`
-- [ ] **M1-04 Buildings and units.** Migrations, entities, CRUD endpoints for landlord. Pagination.
+- [x] **M1-04 Buildings and units.** Migrations, entities, CRUD endpoints for landlord. Pagination.
   - Commit: `feat(property): add buildings and units endpoints`
 - [ ] **M1-05 Ownership enforcement.** `OwnershipService`; another landlord's building returns 404.
   - Done when: IT with two landlords proves isolation.
