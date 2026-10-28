@@ -48,7 +48,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
 - [x] **M1-02 Registration and login.** `POST /auth/register` (landlord only for now), `POST /auth/login`, BCrypt, JWT access token issuance and filter, `GET /me`.
   - Done when: IT registers, logs in, calls `/me`; wrong password gives 401 problem detail.
   - Commit: `feat(identity): add registration, login and jwt authentication`
-- [ ] **M1-03 Refresh token rotation.** `refresh_tokens` table, rotate on use, family revocation on reuse, logout.
+- [x] **M1-03 Refresh token rotation.** `refresh_tokens` table, rotate on use, family revocation on reuse, logout.
   - Done when: test proves reusing a rotated token revokes the family.
   - Commit: `feat(identity): rotate refresh tokens with reuse detection`
 - [ ] **M1-04 Buildings and units.** Migrations, entities, CRUD endpoints for landlord. Pagination.

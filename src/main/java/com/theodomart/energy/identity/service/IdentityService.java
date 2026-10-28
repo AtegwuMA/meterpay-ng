@@ -1,6 +1,5 @@
 package com.theodomart.energy.identity.service;
 
-import com.theodomart.energy.security.service.IssuedToken;
 import java.util.UUID;
 
 public interface IdentityService {
@@ -13,10 +12,23 @@ public interface IdentityService {
 	UserView registerLandlord(RegisterCommand command);
 
 	/**
+	 * Starts a new refresh token family.
+	 *
 	 * @throws InvalidCredentialsException for an unknown email, a wrong password or a disabled account, with
 	 * the same message for all three so callers cannot tell which
 	 */
-	IssuedToken login(String email, String password);
+	AuthTokens login(String email, String password);
+
+	/**
+	 * Rotates the refresh token: the presented one is retired and a new one in the same family is returned.
+	 * Presenting a token that was already retired revokes its whole family (DESIGN 11).
+	 *
+	 * @throws InvalidRefreshTokenException for an unknown, expired, revoked or reused token
+	 */
+	AuthTokens refresh(String refreshToken);
+
+	/** Revokes the family of the given refresh token, if it belongs to the user. Silent otherwise. */
+	void logout(UUID userId, String refreshToken);
 
 	UserView currentUser(UUID userId);
 

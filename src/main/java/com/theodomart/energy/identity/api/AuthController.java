@@ -3,10 +3,9 @@ package com.theodomart.energy.identity.api;
 import com.theodomart.energy.identity.service.IdentityService;
 import com.theodomart.energy.identity.service.RegisterCommand;
 import com.theodomart.energy.security.service.CurrentUser;
-import com.theodomart.energy.security.service.IssuedToken;
 import jakarta.validation.Valid;
 import java.net.URI;
-import java.time.Duration;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -14,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -36,10 +36,22 @@ public class AuthController {
 
 	@PostMapping("/auth/login")
 	public TokenResponse login(@Valid @RequestBody LoginRequest request) {
-		IssuedToken token = identity.login(request.email(), request.password());
-		// From the token's own timestamps, not a second clock read: that would drift and report 899 for a 900s token.
-		long expiresIn = Duration.between(token.issuedAt(), token.expiresAt()).toSeconds();
-		return new TokenResponse(token.value(), "Bearer", expiresIn);
+		return TokenResponse.from(identity.login(request.email(), request.password()));
+	}
+
+	@PostMapping("/auth/refresh")
+	public TokenResponse refresh(@Valid @RequestBody RefreshRequest request) {
+		return TokenResponse.from(identity.refresh(request.refreshToken()));
+	}
+
+	/**
+	 * Ends this device's session by revoking its refresh token family. 204 whatever happened, so the response
+	 * never reveals whether a token existed. The access token stays valid until it expires (at most 15 min).
+	 */
+	@PostMapping("/auth/logout")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void logout(@AuthenticationPrincipal CurrentUser currentUser, @Valid @RequestBody RefreshRequest request) {
+		identity.logout(currentUser.id(), request.refreshToken());
 	}
 
 	@GetMapping("/me")

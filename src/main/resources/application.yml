@@ -34,6 +34,9 @@ meterpay:
       access-token-ttl: 15m
       issuer: meterpay
     bcrypt-strength: 12
+  identity:
+    # DESIGN 11: refresh tokens live 30 days and are rotated on every use.
+    refresh-token-ttl: 30d
 
 logging:
   pattern:
