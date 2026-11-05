@@ -170,7 +170,7 @@ All tables: `id UUID PK`, `created_at TIMESTAMPTZ`, snake_case columns. Mutable 
 
 **tenancies**: `unit_id`, `tenant_id`, `starts_on`, `ends_on NULL`, `status` (ACTIVE, ENDED). Partial unique index: one ACTIVE tenancy per unit. CHECKs: `ends_on` is set exactly when ENDED, and is not before `starts_on`. Ended rows stay as history.
 
-**meters**: `landlord_id`, `unit_id UNIQUE NULL`, `serial_number UNIQUE`, `gateway_type` (SIMULATED, TUYA), `external_device_id`, `status`, `last_register_wh`, `last_reading_at`, `credit_balance_wh`, `low_credit_threshold_wh`. `landlord_id` gives a meter an owner before it is assigned to a unit. Serials are stored upper case (CHECK) and are unique across all landlords, since a serial is one physical device. CHECK: a TUYA meter needs `external_device_id`. `credit_balance_wh` has no sign check, because credit can overshoot below zero before cutoff (7.2). `low_credit_threshold_wh` defaults to 5000 when registering. An assigned meter cannot be moved to another unit (see 16).
+**meters**: `landlord_id`, `unit_id UNIQUE NULL`, `serial_number UNIQUE`, `gateway_type` (SIMULATED, TUYA), `external_device_id`, `status`, `last_register_wh`, `last_reading_at`, `credit_balance_wh`, `low_credit_threshold_wh`. `landlord_id` gives a meter an owner before it is assigned to a unit. Serials are stored upper case (CHECK) and are unique across all landlords, since a serial is one physical device. CHECK: a TUYA meter needs `external_device_id`. `credit_balance_wh` has no sign check, because credit can overshoot below zero before cutoff (7.2). `low_credit_threshold_wh` defaults to 5000 when registering. One row is one installation, so an assigned meter cannot be moved to another unit (see 17). From M7-07: `assigned_at`, `decommissioned_at`, and `serial_number` and (`gateway_type`, `external_device_id`) become unique only among meters that are not decommissioned, so a refurbished device can be registered again as a new row.
 
 **tariff_plans**: `building_id`, `name`
 **tariff_versions**: `plan_id`, `rate_kobo_per_kwh`, `vat_basis_points` (750 = 7.5%), `platform_fee_basis_points`, `effective_from`. Versions are immutable. The active version is the latest with `effective_from <= now`.
@@ -189,17 +189,17 @@ All tables: `id UUID PK`, `created_at TIMESTAMPTZ`, snake_case columns. Mutable 
 
 **meter_readings**: `meter_id`, `register_wh`, `voltage_dv` (decivolts), `power_w`, `relay_closed BOOLEAN`, `read_at`, `received_at`. UNIQUE(`meter_id`, `read_at`). Partitioned by month (range on `read_at`) from M6.
 
-**alerts**: `meter_id`, `type` (LOW_CREDIT, CUTOFF, TAMPER_REGISTER_DECREASE, TAMPER_CONSUMPTION_WHILE_CUTOFF, READING_GAP), `severity`, `status` (OPEN, ACKNOWLEDGED, RESOLVED), `details JSONB`
+**alerts**: `meter_id`, `type` (LOW_CREDIT, CUTOFF, TAMPER_REGISTER_DECREASE, TAMPER_CONSUMPTION_WHILE_CUTOFF, READING_GAP, and from M7-07 METER_REPLACED_UNBILLED_GAP), `severity`, `status` (OPEN, ACKNOWLEDGED, RESOLVED), `details JSONB`
 
 **audit_log**: append-only. `actor_id`, `action`, `target_type`, `target_id`, `payload JSONB`, `prev_hash`, `hash`, `occurred_at`. `hash = SHA-256(prev_hash || canonical_json(row without hash))`.
 
-**outbox_events**: `aggregate_type`, `aggregate_id`, `event_type`, `payload JSONB`, `created_at`, `published_at NULL`, `attempts`
+**outbox_events**: `aggregate_type`, `aggregate_id`, `event_type`, `payload JSONB`, `correlation_id NOT NULL`, `created_at`, `published_at NULL`, `attempts`. `OutboxWriter` copies `correlation_id` from the MDC, or generates one when there is none (scheduled jobs), so every event can be traced.
 
 ### 6.3 Ledger accounts
 
 | Account | Owner | Normal balance |
 |---|---|---|
-| TENANT_WALLET | Tenant | Credit (liability: money we hold for the tenant) |
+| TENANT_WALLET | Tenant (one per user, created at registration) | Credit (liability: money we hold for the tenant) |
 | LANDLORD_REVENUE | Landlord | Credit |
 | GATEWAY_CLEARING | Platform | Debit (money in transit from Paystack) |
 | VAT_PAYABLE | Platform | Credit |
@@ -306,9 +306,12 @@ Fallbacks: a reconciliation job runs every 5 minutes and verifies PAYMENT_PENDIN
 1. Simulator (or Tuya bridge) publishes `MeterReading` to topic `meter.readings.v1`, keyed by `meter_id` (preserves per-meter ordering).
 2. Consumer inserts into `meter_readings`. A duplicate (`meter_id`, `read_at`) is ignored (idempotent consumer).
 3. Older-than-last readings are stored but do not trigger deduction.
-4. `consumed_wh = register_wh − meters.last_register_wh`. If negative, raise TAMPER_REGISTER_DECREASE and skip deduction.
-5. Append CONSUMPTION credit entry, update balance, evaluate thresholds, transition meter state, emit `LowCredit` / `MeterCutoff` events.
-6. Failed messages go to `meter.readings.v1.DLT` after 3 retries.
+4. First reading on a meter row (`last_reading_at IS NULL`): set `last_register_wh` and deduct nothing, and skip the falling-register check. A counter starts at an arbitrary number on any device, new or reused, so treating it as usage would charge the tenant for the device's earlier history.
+5. Otherwise `consumed_wh = register_wh − meters.last_register_wh`. If negative, raise TAMPER_REGISTER_DECREASE and skip deduction.
+6. Append CONSUMPTION credit entry, update balance, evaluate thresholds, transition meter state, emit `LowCredit` / `MeterCutoff` events.
+7. Failed messages go to `meter.readings.v1.DLT` after 3 retries.
+
+The simulator publishes `meter_id` directly. A Tuya bridge resolving a device id to a meter must only look among meters that are not decommissioned, or readings from a reused device could land on the old row.
 
 ### 8.4 Kafka topics
 
@@ -318,13 +321,16 @@ Fallbacks: a reconciliation job runs every 5 minutes and verifies PAYMENT_PENDIN
 | `energy.events.v1` | aggregate_id | outbox relay | vending (credit push), alerting |
 | `meter.readings.v1.DLT` | meter_id | error handler | manual replay |
 
+The outbox relay copies `correlation_id` into a Kafka header, `X-Correlation-Id`, not the payload. Consumers restore it into the MDC and clear it afterwards, so one top-up can be traced from the HTTP request through Kafka to the meter credit push. Retries and the DLT keep the header. It is never used for deduplication or authorisation.
+
 ### 8.5 Tenant onboarding
 
 1. `POST /api/v1/units/{id}/invites` by the owning landlord. Refused with 409 `UNIT_OCCUPIED` if the unit has an active tenancy. Any earlier open invite for the unit is cancelled.
 2. The response holds the code (`K7MPQ-2XR9T`): 10 characters without look-alikes, about 49 bits. It is shown only this once, stored only as a SHA-256 hash, works once and expires after 7 days. Case, spaces and dashes are ignored when it is typed.
 3. The tenant calls `POST /api/v1/auth/register` with `inviteCode`. Its presence is what makes the account a TENANT: clients never send a role.
 4. In one transaction: insert the user, lock the invite row (`SELECT ... FOR UPDATE`), insert the tenancy, mark the invite accepted. Redeeming requires an existing transaction (`Propagation.MANDATORY`). A bad code or a duplicate account leaves no user behind and an unused code still usable.
-5. `POST /api/v1/units/{id}/tenancy/end` ends the tenancy and frees the unit for a new invite.
+5. From M3-02a, a tenant who already has an account calls `POST /api/v1/tenancies/redeem` instead of registering, and keeps the same wallet.
+6. `POST /api/v1/units/{id}/tenancy/end` ends the tenancy and frees the unit for a new invite.
 
 ## 9. API (v1)
 
@@ -338,10 +344,16 @@ All endpoints under `/api/v1`. JSON. Pagination via `page` (default 0) and `size
 | POST | /auth/refresh | public (refresh token) |
 | POST | /auth/logout | authenticated |
 | GET | /me | authenticated |
+| GET | /me/tenancies | TENANT (M2-07) |
+| POST | /me/password | authenticated (M8-07) |
+| POST | /tenancies/redeem | TENANT (M3-02a) |
 
 - `register` body: `email`, `phone`, `password` (at least 10 characters, at most 72 bytes), `fullName`, optional `inviteCode` (present means TENANT, absent means LANDLORD). Returns 201 with the user.
 - `login` and `refresh` return `accessToken`, `tokenType` (`Bearer`), `expiresIn`, `refreshToken`, `refreshTokenExpiresIn` (seconds).
 - `refresh` and `logout` bodies: `refreshToken`. `logout` revokes that session's token family and always returns 204, so it cannot probe which tokens exist. The access token stays valid until it expires.
+- `/me/password` body: `currentPassword`, `newPassword`. Revokes every refresh token family, so a stolen session does not survive, then returns a fresh token pair so the caller stays signed in. A wrong current password is 422, not 401: clients treat 401 as an expired session.
+- `/me/tenancies` returns active tenancies with building, unit label and optional meter id, serial, status and credit. Credit reads 0 until purchases exist (M5-02).
+- `/tenancies/redeem` body: `inviteCode`.
 
 **Property**
 | Method | Path | Role |
@@ -362,6 +374,7 @@ All endpoints under `/api/v1`. JSON. Pagination via `page` (default 0) and `size
 | PUT | /meters/{id}/unit | LANDLORD: assign to unit |
 | GET | /meters/{id} | LANDLORD (owner), TENANT (occupant) |
 | POST | /meters/{id}/suspend, /resume | LANDLORD (owner) |
+| POST | /meters/{id}/replace | LANDLORD (owner): see 17 (M7-07) |
 | GET | /meters/{id}/readings?from&to | owner, occupant |
 | POST, GET | /buildings/{id}/tariffs | LANDLORD (owner): new version |
 
@@ -427,6 +440,7 @@ A single `@RestControllerAdvice` maps exceptions to RFC 9457 `ProblemDetail`:
 | `UnitOccupiedException` | 409 | UNIT_OCCUPIED |
 | `IdempotencyConflictException` (same key, different body) | 422 | IDEMPOTENCY_KEY_REUSED |
 | `InvalidInviteCodeException` (unknown, used, cancelled or expired, all alike) | 422 | INVALID_INVITE_CODE |
+| `InvalidCurrentPasswordException` (M8-07) | 422 | INVALID_CURRENT_PASSWORD |
 | `InsufficientWalletBalanceException` | 422 | INSUFFICIENT_WALLET_BALANCE |
 | `MeterNotOperationalException` | 422 | METER_NOT_OPERATIONAL |
 | `RateLimitExceededException` | 429 | RATE_LIMITED (+ `Retry-After`) |
@@ -446,6 +460,7 @@ Failures inside the security filter chain never reach `@RestControllerAdvice`, s
 - Ownership checks live in services, not only in controllers: `OwnershipService` for buildings and units. A meter has its own `landlord_id`, checked in `MeterServiceImpl`. Role checks use `@PreAuthorize` on controllers.
 - `/me` reloads the user, so a valid token for a disabled user gets 401 there. Other endpoints trust the token until it expires (see 16).
 - Invite codes: see 8.5.
+- The first ADMIN: see 17.
 - Paystack webhook: HMAC-SHA512 of the raw body with the secret key, compared in constant time. Endpoint excluded from JWT but rate limited and IP allowlist optional.
 - Rate limits (Bucket4j + Redis): login 5/min per IP+email, money endpoints 20/min per user, global 300/min per IP.
 - No secrets in the repo. `.env.example` documents every variable.
@@ -479,6 +494,7 @@ Required named tests (portfolio evidence):
 - `PaystackWebhookIT.invalidSignatureIsRejected`
 - `LedgerInvariantTest.everyJournalEntryBalances`
 - `TelemetryIT.duplicateReadingIsIgnored`
+- `TelemetryIT.firstReadingSetsBaselineWithoutDeduction`
 - `TelemetryIT.registerDecreaseRaisesTamperAlert`
 - `CutoffIT.meterIsCutOffAtZeroAndRestoredAfterPurchase`
 - `AuditChainTest.tamperedRowBreaksVerification`
@@ -487,7 +503,7 @@ Required named tests (portfolio evidence):
 
 - `docker compose up` starts Postgres, Redis, Kafka (KRaft), the API and the meter simulator with seed data (one landlord, one building, three units, three tenants, three simulated meters).
 - Profiles: `local` (simulator, Paystack test keys or WireMock stub; reads `.env`), `test` (fixed test JWT secret, BCrypt strength 4), `prod` (Tuya optional, JSON logs).
-- Ports and secrets are configured in `.env`, copied from `.env.example`. `JWT_SECRET` has no default: generate one with `openssl rand -base64 48`.
+- Ports and secrets are configured in `.env`, copied from `.env.example`. `JWT_SECRET` has no default: generate one with `openssl rand -base64 48`. From M3-06a: `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PHONE`, `BOOTSTRAP_ADMIN_PASSWORD` (all or none).
 - Dockerfile: multi-stage, layered jar, non-root user.
 - Prod target: Oracle Always Free VM behind Nginx, subdomain `meterpay.theodomart.com`, Let's Encrypt.
 
@@ -507,18 +523,23 @@ Required named tests (portfolio evidence):
 
 ## 16. Open design questions
 
-Not decided yet. Each one needs a decision before the task named in the last column.
+Not decided yet. Each one needs a decision before the point named in the last column.
 
 | Question | Why it matters | Needed by |
 |---|---|---|
-| How does a tenant find their own meter or tenancy? There is no such endpoint. | `POST /meters/{id}/purchases` needs a meter id the tenant has no way to learn. | M5-03 |
 | Should there be a `GET /meters` for landlords? | A landlord cannot list their meters without knowing the ids. | Landlord dashboard |
-| How is an ADMIN created? Registration only makes LANDLORD and TENANT. | `/admin/ledger/trial-balance` and `/admin/audit/verify` are unreachable without one. | M3-07 |
-| Can a tenant with an account join another unit? Today a code needs a new account, so a new email and phone. | Tenants who move flats are locked out of their history and wallet. | M3-02 |
-| How is a meter replaced or moved? State 7.2 has DECOMMISSIONED but 9 has no endpoint, and an assigned meter cannot move. | Faulty meters need replacing, and credit belongs to the tenant. | M2-02 |
 | Should invite codes be HMAC-hashed with a server secret? | About 49 bits under plain SHA-256 could be brute-forced offline from a leaked table inside the 7-day window. | Before launch |
-| Should `outbox_events` carry `correlation_id`, copied to a Kafka header by the relay? | The relay runs later on another thread, so without it a purchase cannot be traced end to end. | M5-01 |
 | Should concurrent refreshes get a short grace window? | A mobile client that retries on a bad connection is treated as reuse and logged out. | Mobile client testing |
 | Should disabling a user take effect immediately on every endpoint? | Only `/me` and refresh check today, so a disabled user's access token works for up to 15 minutes. | M7-04 |
 | Should `register` and `refresh` get their own rate limit? 11 only covers login, money endpoints and a global limit. | Guessing invite codes and mass registration are limited only by the global 300/min per IP. | M8-01 |
 | Which task implements CORS? 11 requires it, but the plan has no task for it. | Browser frontends cannot call the API without it. | Landlord web app |
+
+## 17. Recorded decisions
+
+Decisions taken after the first version of this design. The sections they touch say what is built when.
+
+1. **One meter row is one installation (M7-07).** A meter row never moves. A replacement, a move or a refurbished device is a new row, so no assignment history table is needed: `meters.assigned_at`, `decommissioned_at` and `tenancies` answer who had a meter when. Replacing means: take a final reading (or use the last known one if the meter is dead), decommission the old row, register the new one, and move the remaining credit with two ADJUSTMENT entries in one transaction, audited. Usage between a dead meter's last reading and its failure is never billed, so the transferred credit is slightly too high. That is accepted, and the gap is recorded in the alert's `details`. If M7-07 is dropped for time, this returns to section 16 as an open item.
+2. **A tenant can hold tenancies over time, and money follows the person (M3-02, M3-02a).** One user may have many tenancies, with one active tenancy per unit. Each tenant user has one wallet, created at registration rather than at tenancy start. A logged-in tenant joins another unit with `POST /tenancies/redeem`. A user has one role, so a landlord who also rents needs a separate tenant account in v1.
+3. **The first ADMIN comes from the environment (M3-06a).** Never through `/auth/register`. At startup, if no admin exists and `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PHONE` and `BOOTSTRAP_ADMIN_PASSWORD` are all set, the admin is created. If none is set, nothing happens. If only some are set, startup fails. The password is never logged. There is no `POST /admin/users` in v1: one admin is enough. The action is logged at first and audited from M7-04.
+4. **A tenant finds their meter through `GET /me/tenancies` (M2-07).** It returns each active tenancy with building, unit label and, when the unit has one, meter id, serial, status and credit. It lives in the `meter` module, which already depends on `property`; the reverse would create a cycle. `/me` stays about identity only.
+5. **Every outbox event carries a correlation ID (M5-01).** See 6.2 and 8.4.

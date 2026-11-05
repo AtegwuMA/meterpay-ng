@@ -74,13 +74,17 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(tariff): calculate vat, platform fee and energy from amount`
 - [ ] **M2-06 ADR-0005.** Rounding and VAT decision.
   - Commit: `docs(adr): record tariff and rounding rules`
+- [ ] **M2-07 Tenant's tenancies.** `GET /me/tenancies` in the `meter` module (DESIGN §17.4): active tenancies with building, unit label and optional meter id, serial, status and credit. Fetch meters in one batch query, no N+1. Credit reads 0 until M5-02: nothing can change it before then, and that is not a bug.
+  - Commit: `feat(meter): let tenants see their tenancies and meters`
 
 ## M3: Ledger (weeks 4 to 5)
 
 - [ ] **M3-01 Ledger schema.** `ledger_accounts`, `journal_entries`, `postings` migrations with CHECK constraints (`amount_kobo > 0`), idempotency key unique.
   - Commit: `feat(ledger): add double-entry ledger schema`
-- [ ] **M3-02 Account provisioning.** Create TENANT_WALLET on tenancy start, LANDLORD_REVENUE on landlord registration, platform accounts seeded by migration.
+- [ ] **M3-02 Account provisioning.** Create TENANT_WALLET at tenant registration (one per user, DESIGN §17.2), LANDLORD_REVENUE on landlord registration, platform accounts seeded by migration. The migration also backfills both for users who registered before M3, idempotently (`INSERT ... SELECT ... ON CONFLICT DO NOTHING`).
   - Commit: `feat(ledger): provision accounts for tenants, landlords and platform`
+- [ ] **M3-02a Existing tenant joins a unit.** `POST /tenancies/redeem` with an invite code, for a logged-in tenant. Same wallet, same locking and error rules as registering with a code (DESIGN §8.5).
+  - Commit: `feat(property): let existing tenants redeem an invite`
 - [ ] **M3-03 Posting service.** `LedgerService.post(JournalEntryCommand)`: validates balance, applies postings, updates account balances with optimistic locking, rejects negative TENANT_WALLET.
   - Done when: `LedgerInvariantTest.everyJournalEntryBalances` and insufficient balance tests pass.
   - Commit: `feat(ledger): post balanced journal entries atomically`
@@ -90,6 +94,8 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `test(ledger): prove concurrent debits never overdraw a wallet`
 - [ ] **M3-06 Wallet read endpoints.** `GET /wallet`, `GET /wallet/transactions`.
   - Commit: `feat(ledger): expose tenant wallet balance and history`
+- [ ] **M3-06a Admin bootstrap.** At startup, create the first ADMIN from `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PHONE`, `BOOTSTRAP_ADMIN_PASSWORD` when no admin exists (DESIGN §17.3). Idempotent. Fail startup if only some are set. Never log the password. Logged for now, audited from M7-04.
+  - Commit: `feat(identity): bootstrap the first admin from the environment`
 - [ ] **M3-07 Trial balance.** `GET /admin/ledger/trial-balance` and scheduled imbalance check emitting metric.
   - Commit: `feat(ledger): add trial balance and imbalance monitor`
 - [ ] **M3-08 ADR-0003 and ADR-0007.**
@@ -115,7 +121,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
 
 ## M5: Vending and outbox (week 7)
 
-- [ ] **M5-01 Outbox.** `outbox_events` table, `OutboxWriter` used inside business transactions, relay polling with `FOR UPDATE SKIP LOCKED`, publishes to `energy.events.v1`, marks published.
+- [ ] **M5-01 Outbox.** `outbox_events` table with `correlation_id NOT NULL`, `OutboxWriter` used inside business transactions (copies the ID from the MDC, generates one when there is none), relay polling with `FOR UPDATE SKIP LOCKED`, publishes to `energy.events.v1` with an `X-Correlation-Id` header, marks published. Consumers restore the header into the MDC.
   - Done when: IT proves event is not published if the business transaction rolls back.
   - Commit: `feat(outbox): add transactional outbox with kafka relay`
 - [ ] **M5-02 Meter credit ledger.** `meter_credit_entries` append-only, `MeterCreditService.apply(delta)` with optimistic locking on meter.
@@ -138,7 +144,8 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
 - [ ] **M6-03 Ingestion consumer.** Idempotent insert, out-of-order handling, DLT after 3 retries.
   - Done when: `duplicateReadingIsIgnored` passes.
   - Commit: `feat(telemetry): ingest meter readings idempotently`
-- [ ] **M6-04 Consumption deduction.** Delta from last register, CONSUMPTION credit entry, threshold evaluation, LOW_CREDIT transition and event.
+- [ ] **M6-04 Consumption deduction.** First reading sets the baseline and deducts nothing (`last_reading_at IS NULL`, DESIGN §8.3). After that: delta from last register, CONSUMPTION credit entry, threshold evaluation, LOW_CREDIT transition and event.
+  - Done when: `TelemetryIT.firstReadingSetsBaselineWithoutDeduction` passes.
   - Commit: `feat(telemetry): deduct consumption from meter credit`
 - [ ] **M6-05 Cloud cutoff and restore.** At zero: CUTOFF state, `setRelay(OPEN)`, event. Purchase restores (wired to M5-05).
   - Done when: `CutoffIT.meterIsCutOffAtZeroAndRestoredAfterPurchase` passes.
@@ -157,12 +164,14 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(alerting): detect meter tampering patterns`
 - [ ] **M7-03 Notifications port.** `NotificationSender` interface with logging implementation (email/SMS adapters left as extension points).
   - Commit: `feat(alerting): notify tenants and landlords of alerts`
-- [ ] **M7-04 Hash-chained audit log.** `audit_log` table, `AuditService.record`, serialized writes (advisory lock), applied to money, tariff, meter state and tenancy actions.
+- [ ] **M7-04 Hash-chained audit log.** `audit_log` table, `AuditService.record`, serialized writes (advisory lock), applied to money, tariff, meter state and tenancy actions, and to admin bootstrap (M3-06a).
   - Commit: `feat(audit): add hash-chained append-only audit log`
 - [ ] **M7-05 Audit verification.** `GET /admin/audit/verify`; `AuditChainTest.tamperedRowBreaksVerification`.
   - Commit: `feat(audit): verify audit chain integrity`
 - [ ] **M7-06 ADR-0008.**
   - Commit: `docs(adr): record hash-chained audit log`
+- [ ] **M7-07 Meter replacement.** `POST /meters/{id}/replace` per DESIGN §17.1: final or last known reading, decommission, new row, credit moved with two ADJUSTMENT entries in one transaction, audited. New migration: `assigned_at`, `decommissioned_at`, partial unique `serial_number` and (`gateway_type`, `external_device_id`). METER_REPLACED_UNBILLED_GAP alert records a dead meter's gap in `details`. First to drop if time runs short: if dropped, move it back to DESIGN §16 as an open item.
+  - Commit: `feat(meter): replace a meter and carry over its credit`
 
 ## M8: Hardening (week 11)
 
@@ -178,6 +187,8 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `docs(api): document endpoints and error responses in openapi`
 - [ ] **M8-06 Coverage gate to 75%.** Fill gaps found by JaCoCo (tests, not exclusions).
   - Commit: `test: raise coverage gate to 75 percent`
+- [ ] **M8-07 Change password.** `POST /me/password` with `currentPassword` and `newPassword`. Revokes every refresh token family, then returns a fresh token pair so the caller stays signed in. Wrong current password is 422 INVALID_CURRENT_PASSWORD.
+  - Commit: `feat(identity): let users change their password`
 
 ## M9: Ship (week 12)
 
