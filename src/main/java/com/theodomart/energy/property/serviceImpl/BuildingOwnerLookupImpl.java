@@ -22,4 +22,10 @@ public class BuildingOwnerLookupImpl implements BuildingOwnerLookup {
 		return buildings.findLandlordIdById(buildingId);
 	}
 
+	@Override
+	@Transactional(readOnly = true)
+	public Optional<UUID> landlordOfUnit(UUID unitId) {
+		return buildings.findLandlordIdByUnitId(unitId);
+	}
+
 }

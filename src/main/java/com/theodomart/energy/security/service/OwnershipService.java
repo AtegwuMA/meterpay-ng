@@ -14,4 +14,7 @@ public interface OwnershipService {
 	 */
 	void requireBuildingOwner(UUID userId, UUID buildingId);
 
+	/** Same rules as {@link #requireBuildingOwner}, for the building a unit is in. */
+	void requireUnitOwner(UUID userId, UUID unitId);
+
 }

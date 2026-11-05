@@ -29,8 +29,9 @@ public class AuthController {
 
 	@PostMapping("/auth/register")
 	public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
-		var user = identity.registerLandlord(
-				new RegisterCommand(request.email(), request.phone(), request.password(), request.fullName()));
+		var command = new RegisterCommand(request.email(), request.phone(), request.password(), request.fullName());
+		var user = request.inviteCode() == null ? identity.registerLandlord(command)
+				: identity.registerTenant(command, request.inviteCode());
 		return ResponseEntity.created(URI.create("/api/v1/me")).body(UserResponse.from(user));
 	}
 

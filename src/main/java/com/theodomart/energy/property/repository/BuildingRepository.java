@@ -17,4 +17,7 @@ public interface BuildingRepository extends JpaRepository<Building, UUID> {
 	@Query("select b.landlordId from Building b where b.id = :id")
 	Optional<UUID> findLandlordIdById(@Param("id") UUID id);
 
+	@Query("select b.landlordId from Building b, Unit u where u.buildingId = b.id and u.id = :unitId")
+	Optional<UUID> findLandlordIdByUnitId(@Param("unitId") UUID unitId);
+
 }

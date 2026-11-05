@@ -17,6 +17,7 @@ import com.theodomart.energy.identity.service.InvalidCredentialsException;
 import com.theodomart.energy.identity.service.InvalidRefreshTokenException;
 import com.theodomart.energy.identity.service.RegisterCommand;
 import com.theodomart.energy.identity.service.UserView;
+import com.theodomart.energy.property.service.TenancyService;
 import com.theodomart.energy.security.service.IssuedToken;
 import com.theodomart.energy.security.service.TokenService;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +49,8 @@ public class IdentityServiceImpl implements IdentityService {
 
 	private final TokenService tokens;
 
+	private final TenancyService tenancies;
+
 	private final IdentityProperties properties;
 
 	private final Clock clock;
@@ -57,11 +60,13 @@ public class IdentityServiceImpl implements IdentityService {
 	private final String dummyHash;
 
 	public IdentityServiceImpl(UserRepository users, RefreshTokenRepository refreshTokens,
-			PasswordEncoder passwordEncoder, TokenService tokens, IdentityProperties properties, Clock clock) {
+			PasswordEncoder passwordEncoder, TokenService tokens, TenancyService tenancies,
+			IdentityProperties properties, Clock clock) {
 		this.users = users;
 		this.refreshTokens = refreshTokens;
 		this.passwordEncoder = passwordEncoder;
 		this.tokens = tokens;
+		this.tenancies = tenancies;
 		this.properties = properties;
 		this.clock = clock;
 		this.dummyHash = passwordEncoder.encode("timing-equaliser-" + UUID.randomUUID());
@@ -70,6 +75,21 @@ public class IdentityServiceImpl implements IdentityService {
 	@Override
 	@Transactional
 	public UserView registerLandlord(RegisterCommand command) {
+		User user = createUser(command, Role.LANDLORD);
+		log.info("Landlord registered: userId={}", user.getId());
+		return toView(user);
+	}
+
+	@Override
+	@Transactional
+	public UserView registerTenant(RegisterCommand command, String inviteCode) {
+		User user = createUser(command, Role.TENANT);
+		tenancies.redeemInvite(inviteCode, user.getId());
+		log.info("Tenant registered: userId={}", user.getId());
+		return toView(user);
+	}
+
+	private User createUser(RegisterCommand command, Role role) {
 		if (command.password().getBytes(StandardCharsets.UTF_8).length > BCRYPT_MAX_BYTES) {
 			throw new InvalidRequestException("Password must be at most " + BCRYPT_MAX_BYTES + " bytes.");
 		}
@@ -81,7 +101,7 @@ public class IdentityServiceImpl implements IdentityService {
 			throw new InvalidRequestException(ex.getMessage() + ".");
 		}
 		User user = User.create(command.email(), phone, passwordEncoder.encode(command.password()),
-				command.fullName(), Role.LANDLORD, clock.instant());
+				command.fullName(), role, clock.instant());
 		try {
 			// Insert and let the UNIQUE constraints decide. A check-then-insert would race: two concurrent
 			// registrations could both pass the check.
@@ -90,8 +110,7 @@ public class IdentityServiceImpl implements IdentityService {
 		catch (DataIntegrityViolationException ex) {
 			throw duplicateOrRethrow(ex);
 		}
-		log.info("Landlord registered: userId={}", user.getId());
-		return toView(user);
+		return user;
 	}
 
 	@Override

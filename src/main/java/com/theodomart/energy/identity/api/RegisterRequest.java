@@ -9,7 +9,9 @@ public record RegisterRequest(@NotBlank @Email @Size(max = 254) String email,
 		// Max 72: BCrypt ignores anything past 72 bytes. The service also checks bytes, since one character can
 		// take up to 4 bytes in UTF-8.
 		@NotBlank @Size(min = 10, max = 72) String password,
-		@NotBlank @Size(max = 200) String fullName) {
+		@NotBlank @Size(max = 200) String fullName,
+		// Present: a tenant joining a unit. Absent: a landlord signing up. Clients never choose a role.
+		@Size(min = 10, max = 32) String inviteCode) {
 
 	@Override
 	public String toString() {

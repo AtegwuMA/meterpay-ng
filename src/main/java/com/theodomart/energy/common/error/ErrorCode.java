@@ -21,6 +21,8 @@ public enum ErrorCode {
 	CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "Concurrent modification"),
 	DUPLICATE_ACCOUNT(HttpStatus.CONFLICT, "Account already exists"),
 	DUPLICATE_RESOURCE(HttpStatus.CONFLICT, "Resource already exists"),
+	UNIT_OCCUPIED(HttpStatus.CONFLICT, "Unit occupied"),
+	INVALID_INVITE_CODE(HttpStatus.UNPROCESSABLE_CONTENT, "Invalid invite code"),
 	IDEMPOTENCY_KEY_REUSED(HttpStatus.UNPROCESSABLE_CONTENT, "Idempotency key reused"),
 	INSUFFICIENT_WALLET_BALANCE(HttpStatus.UNPROCESSABLE_CONTENT, "Insufficient wallet balance"),
 	METER_NOT_OPERATIONAL(HttpStatus.UNPROCESSABLE_CONTENT, "Meter not operational"),

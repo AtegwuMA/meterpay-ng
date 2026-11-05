@@ -14,7 +14,6 @@ import com.theodomart.energy.property.service.UnitView;
 import com.theodomart.energy.security.service.OwnershipService;
 import java.time.Clock;
 import java.util.UUID;
-import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -98,7 +97,7 @@ public class PropertyServiceImpl implements PropertyService {
 			units.saveAndFlush(unit);
 		}
 		catch (DataIntegrityViolationException ex) {
-			if ("uk_units_building_label".equals(constraintName(ex))) {
+			if ("uk_units_building_label".equals(ConstraintNames.of(ex))) {
 				throw new DuplicateResourceException("A unit labelled \"" + unit.getLabel()
 						+ "\" already exists in this building.");
 			}
@@ -119,15 +118,6 @@ public class PropertyServiceImpl implements PropertyService {
 		ownership.requireBuildingOwner(landlordId, buildingId);
 		return buildings.findById(buildingId)
 			.orElseThrow(() -> new ResourceNotFoundException("Building " + buildingId + " was not found."));
-	}
-
-	private static String constraintName(Throwable ex) {
-		for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
-			if (cause instanceof ConstraintViolationException violation) {
-				return violation.getConstraintName();
-			}
-		}
-		return null;
 	}
 
 	private static BuildingView toView(Building b) {

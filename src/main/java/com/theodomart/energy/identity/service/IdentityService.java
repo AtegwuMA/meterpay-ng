@@ -5,11 +5,20 @@ import java.util.UUID;
 public interface IdentityService {
 
 	/**
-	 * Registers a landlord. Only landlords self-register for now; tenants join through an invite code (M1-06).
+	 * Registers a landlord. Landlords sign up on their own; tenants need an invite code.
 	 *
 	 * @throws DuplicateAccountException if the email or phone already belongs to an account
 	 */
 	UserView registerLandlord(RegisterCommand command);
+
+	/**
+	 * Registers a tenant and starts their tenancy from an invite code. One transaction: if the code is bad or
+	 * the account is a duplicate, no user exists afterwards and the code stays usable.
+	 *
+	 * @throws DuplicateAccountException if the email or phone already belongs to an account
+	 * @throws com.theodomart.energy.property.service.InvalidInviteCodeException if the code cannot be used
+	 */
+	UserView registerTenant(RegisterCommand command, String inviteCode);
 
 	/**
 	 * Starts a new refresh token family.

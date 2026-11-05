@@ -12,4 +12,7 @@ public interface BuildingOwnerLookup {
 
 	Optional<UUID> landlordOf(UUID buildingId);
 
+	/** The landlord of the building this unit is in. */
+	Optional<UUID> landlordOfUnit(UUID unitId);
+
 }

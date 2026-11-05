@@ -56,7 +56,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
 - [x] **M1-05 Ownership enforcement.** `OwnershipService`; another landlord's building returns 404.
   - Done when: IT with two landlords proves isolation.
   - Commit: `feat(security): enforce landlord ownership on property resources`
-- [ ] **M1-06 Tenant invites and tenancy.** Invite code per unit, tenant registration with code, `tenancies` with one-active-per-unit partial index, end tenancy.
+- [x] **M1-06 Tenant invites and tenancy.** Invite code per unit, tenant registration with code, `tenancies` with one-active-per-unit partial index, end tenancy.
   - Commit: `feat(property): add tenant invites and tenancy lifecycle`
 
 ## M2: Meters and tariffs (week 3)

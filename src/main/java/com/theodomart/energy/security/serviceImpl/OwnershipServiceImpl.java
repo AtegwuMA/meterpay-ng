@@ -30,4 +30,13 @@ public class OwnershipServiceImpl implements OwnershipService {
 		}
 	}
 
+	@Override
+	public void requireUnitOwner(UUID userId, UUID unitId) {
+		boolean owner = buildingOwners.landlordOfUnit(unitId).filter(userId::equals).isPresent();
+		if (!owner) {
+			log.info("Unit access refused: userId={} unitId={}", userId, unitId);
+			throw new ResourceNotFoundException("Unit " + unitId + " was not found.");
+		}
+	}
+
 }
