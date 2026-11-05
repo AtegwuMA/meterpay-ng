@@ -120,7 +120,7 @@ class GlobalExceptionHandlerTest {
 			.andExpect(content().contentType(PROBLEM_JSON))
 			.andExpect(jsonPath("$.code").value("ILLEGAL_STATE_TRANSITION"))
 			.andExpect(jsonPath("$.title").value("Illegal state transition"))
-			.andExpect(jsonPath("$.detail").value("Cannot move meter from DECOMMISSIONED to ACTIVE"));
+			.andExpect(jsonPath("$.detail").value("Cannot move meter from DECOMMISSIONED to ACTIVE."));
 	}
 
 	@Test
@@ -161,6 +161,12 @@ class GlobalExceptionHandlerTest {
 		mvc.perform(get("/test/does-not-exist")).andExpect(jsonPath("$.traceId").value("a1b2c3d4"));
 	}
 
+	enum TestState {
+
+		ACTIVE, DECOMMISSIONED
+
+	}
+
 	record PurchaseRequest(@NotBlank String meterId, @Positive long amountKobo) {
 	}
 
@@ -168,14 +174,6 @@ class GlobalExceptionHandlerTest {
 
 		TestNotFoundException(String detail) {
 			super(ErrorCode.NOT_FOUND, detail);
-		}
-
-	}
-
-	static final class TestTransitionException extends DomainException {
-
-		TestTransitionException(String detail) {
-			super(ErrorCode.ILLEGAL_STATE_TRANSITION, detail);
 		}
 
 	}
@@ -209,7 +207,7 @@ class GlobalExceptionHandlerTest {
 
 		@PostMapping("/test/transition")
 		String transition() {
-			throw new TestTransitionException("Cannot move meter from DECOMMISSIONED to ACTIVE");
+			throw new IllegalStateTransitionException("meter", TestState.DECOMMISSIONED, TestState.ACTIVE);
 		}
 
 		@PostMapping("/test/concurrent")

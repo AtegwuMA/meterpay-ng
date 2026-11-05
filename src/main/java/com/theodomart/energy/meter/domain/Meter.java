@@ -1,5 +1,6 @@
 package com.theodomart.energy.meter.domain;
 
+import com.theodomart.energy.common.error.IllegalStateTransitionException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -118,6 +119,19 @@ public class Meter {
 		this.updatedAt = Objects.requireNonNull(now, "now");
 	}
 
+	/**
+	 * The only way the status changes.
+	 *
+	 * @throws IllegalStateTransitionException if {@link MeterStatus} does not allow the move
+	 */
+	public void transitionTo(MeterStatus target, Instant now) {
+		if (!status.canTransitionTo(target)) {
+			throw new IllegalStateTransitionException("meter", status, target);
+		}
+		this.status = target;
+		this.updatedAt = Objects.requireNonNull(now, "now");
+	}
+
 	public UUID getId() {
 		return id;
 	}
@@ -164,6 +178,10 @@ public class Meter {
 
 	public Instant getCreatedAt() {
 		return createdAt;
+	}
+
+	public Instant getUpdatedAt() {
+		return updatedAt;
 	}
 
 	@Override

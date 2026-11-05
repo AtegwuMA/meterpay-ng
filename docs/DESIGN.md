@@ -264,6 +264,8 @@ SUSPENDED --landlord resumes--> previous state
 any --decommission--> DECOMMISSIONED (terminal)
 ```
 
+"Operational" means ACTIVE, LOW_CREDIT and CUTOFF, so a PROVISIONED meter has no tamper or credit moves. No state moves to itself. A purchase on a CUTOFF meter always goes through ACTIVE, even if the new credit is below the threshold. `MeterStatus` is the only place that defines these moves, and `Meter.transitionTo` the only way to make one.
+
 Credit enforcement is two-layered: the purchased Wh is pushed to the meter (edge enforced), and the cloud independently opens the relay at zero (cloud enforced). If the meter keeps reporting consumption while CUTOFF, a TAMPER_CONSUMPTION_WHILE_CUTOFF alert fires.
 
 ## 8. Key flows

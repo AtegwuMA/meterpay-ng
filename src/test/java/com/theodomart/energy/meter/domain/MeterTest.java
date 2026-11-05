@@ -3,6 +3,8 @@ package com.theodomart.energy.meter.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.theodomart.energy.common.error.ErrorCode;
+import com.theodomart.energy.common.error.IllegalStateTransitionException;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -69,6 +71,38 @@ class MeterTest {
 		assertThat(meter.getUnitId()).isEqualTo(unit);
 		assertThatThrownBy(() -> meter.assignToUnit(UUID.randomUUID(), NOW)).isInstanceOf(IllegalStateException.class);
 		assertThat(meter.getUnitId()).isEqualTo(unit);
+	}
+
+	@Test
+	void allowedTransitionChangesStatusAndUpdatedAt() {
+		Instant later = NOW.plusSeconds(60);
+
+		meter.transitionTo(MeterStatus.ACTIVE, later);
+
+		assertThat(meter.getStatus()).isEqualTo(MeterStatus.ACTIVE);
+		assertThat(meter.getUpdatedAt()).isEqualTo(later);
+	}
+
+	@Test
+	void illegalTransitionIsRefusedAndChangesNothing() {
+		assertThatThrownBy(() -> meter.transitionTo(MeterStatus.CUTOFF, NOW.plusSeconds(60)))
+			.isInstanceOfSatisfying(IllegalStateTransitionException.class, ex -> {
+				assertThat(ex.errorCode()).isEqualTo(ErrorCode.ILLEGAL_STATE_TRANSITION);
+				assertThat(ex).hasMessage("Cannot move meter from PROVISIONED to CUTOFF.");
+			});
+
+		assertThat(meter.getStatus()).isEqualTo(MeterStatus.PROVISIONED);
+		assertThat(meter.getUpdatedAt()).isEqualTo(NOW);
+	}
+
+	@Test
+	void decommissionedMeterCanNeverMoveAgain() {
+		meter.transitionTo(MeterStatus.DECOMMISSIONED, NOW);
+
+		for (MeterStatus target : MeterStatus.values()) {
+			assertThatThrownBy(() -> meter.transitionTo(target, NOW))
+				.isInstanceOf(IllegalStateTransitionException.class);
+		}
 	}
 
 	@Test

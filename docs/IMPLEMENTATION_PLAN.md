@@ -63,7 +63,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
 
 - [x] **M2-01 Meter registry.** `meters` table and entity, register, assign to unit, get. Serial number unique.
   - Commit: `feat(meter): add meter registration and unit assignment`
-- [ ] **M2-02 Meter state machine.** `MeterStatus` with allowed transitions in one place, `IllegalStateTransitionException`. Exhaustive parameterized unit test of every transition pair.
+- [x] **M2-02 Meter state machine.** `MeterStatus` with allowed transitions in one place, `IllegalStateTransitionException`. Exhaustive parameterized unit test of every transition pair.
   - Commit: `feat(meter): add meter state machine with guarded transitions`
 - [ ] **M2-03 Suspend and resume.** Endpoints, restore previous state.
   - Commit: `feat(meter): allow landlords to suspend and resume meters`
