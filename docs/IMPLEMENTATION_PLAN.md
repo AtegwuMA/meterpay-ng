@@ -1,6 +1,6 @@
 # MeterPay: Implementation Plan
 
-Build order for the backend described in `docs/DESIGN.md`. Every task is sized to be **one commit**. Work top to bottom. Do not start a task until the one before it is merged and green.
+Build order for the backend described in `docs/DESIGN.md`. Every task is sized to be **one commit**. Work top to bottom. Do not start a task until the one before it is committed and green.
 
 Target: 12 weeks, mid-October 2026 to mid-January 2027, roughly 4 to 6 tasks a week.
 
@@ -10,7 +10,7 @@ Target: 12 weeks, mid-October 2026 to mid-January 2027, roughly 4 to 6 tasks a w
 Implement task M1-03 from docs/IMPLEMENTATION_PLAN.md
 ```
 
-Claude Code implements that one task, runs `./mvnw verify`, and stops. You review the diff, make it yours, then commit with the suggested message (edit it if your change differs). Tick the box here in the same commit.
+Claude Code implements that one task, runs `./mvnw verify`, commits it to `main` with the message below (ticking the box here in the same commit), and stops. You review it and say when to push. Nothing is pushed without that.
 
 ---
 
@@ -196,7 +196,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
 
 ## Branch and commit rules
 
-- One task, one branch (`feat/m3-03-posting-service`), one PR into `main`, squash or rebase merge.
+- One task, one commit on `main`. CI runs on every push.
 - Conventional Commits. The subject line says what changed for the system, not "update files".
 - Never commit a broken build. `./mvnw verify` locally before pushing.
 - Never edit an applied migration. Add a new `V{n}__*.sql`.

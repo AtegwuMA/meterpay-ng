@@ -51,7 +51,7 @@ MeterPay lets a landlord register buildings, units and smart meters, set a tarif
 | Database | PostgreSQL 16, Flyway migrations |
 | Cache, rate limiting | Redis 7, Bucket4j |
 | Messaging | Apache Kafka (KRaft mode, no ZooKeeper) |
-| Security | Spring Security, JWT access tokens, rotating refresh tokens |
+| Security | Spring Security with its OAuth2 resource server (Nimbus) for JWT access tokens, rotating refresh tokens |
 | Payments | Paystack (behind `PaymentGateway` interface) |
 | Meters | `MeterGateway` interface: simulator (default), Tuya adapter (optional profile) |
 | API docs | springdoc-openapi |
@@ -102,10 +102,10 @@ flowchart LR
 ```
 com.theodomart.energy
 ├── MeterPayApplication.java
-├── common/            errors, ProblemDetail handler, correlation ID, clock, money/energy value types, base entity
-├── security/          JWT, filters, SecurityConfig, ownership checks
-├── identity/          users, roles, login, refresh tokens
-├── property/          buildings, units, tenancies
+├── common/            errors, ProblemDetail handler, correlation ID filter, Clock bean, Money, Energy and Role types, paging response, constraint name lookup
+├── security/          JWT issuing and verification, SecurityConfig, CurrentUser, ownership checks
+├── identity/          users, registration, login, refresh tokens
+├── property/          buildings, units, tenant invites, tenancies
 ├── meter/             meter registry, meter state machine
 ├── tariff/            tariff plans and versions
 ├── ledger/            accounts, journal entries, postings (money, kobo)
@@ -124,20 +124,25 @@ Inside each feature module:
 ```
 {module}/
 ├── api/           controllers, request/response DTOs (records)
-├── service/       interfaces only
+├── service/       interfaces, plus the view records, commands and exceptions in their signatures
 ├── serviceImpl/   implementations only
 ├── domain/        JPA entities, enums, domain logic
 ├── repository/    Spring Data repositories
-└── event/         domain event records (if any)
+├── event/         domain event records (if any)
+└── config/        configuration properties and beans (if any)
 ```
+
+`service` holds a module's whole public contract, because rule 2 below forbids other modules from reaching anywhere else. Enums in `domain` therefore cross module boundaries as strings in view records. `Role` lives in `common` because every module authorises against it.
+
+Modules may depend on each other's `service` packages in both directions as long as the bean graph stays acyclic. Example: `property` calls `security`'s `OwnershipService`, which reads ownership through `property`'s `BuildingOwnerLookup`.
 
 ### 5.2 Architecture rules (enforced by ArchUnit tests)
 
 1. Controllers and any other consumer depend on `service` interfaces, never on `serviceImpl`.
-2. A module may only call another module through that module's `service` interfaces. No cross-module repository or entity access.
-3. Controllers never return JPA entities. Only DTO records.
-4. `ledger` and `audit` repositories expose no delete methods.
-5. No class outside `common` uses `double` or `float` for money or energy fields.
+2. A module may only use another module through its `service` package and its `event` records (the contract its Kafka consumers read). No cross-module repository or entity access.
+3. Controllers never return JPA entities, not even inside generics such as `ResponseEntity<List<Entity>>`. Only records.
+4. `ledger` and `audit` repositories expose no delete methods: they may not extend `CrudRepository` or `JpaRepository`, which bring `deleteById` and friends, nor declare `delete*` or `remove*` methods.
+5. No class outside `common` declares a `double`, `Double`, `float`, `Float` or `BigDecimal` field. This covers every field, not only money and energy, so renaming a field cannot dodge it (ADR-0002). Nothing here needs fractions: voltage is in decivolts, power in whole watts.
 
 ## 6. Domain model
 
@@ -146,23 +151,26 @@ Inside each feature module:
 - Money: `long` kobo, wrapped in a `Money` record. `BIGINT` in Postgres. Never `double`, `float` or `BigDecimal` in entities.
 - Energy: `long` watt-hours (Wh), wrapped in an `Energy` record. `BIGINT` in Postgres.
 - Tariff rates: kobo per kWh as `long`. Conversion from money to energy uses integer arithmetic with explicit rounding toward the platform (floor of Wh delivered), documented in ADR-0005.
-- Time: `Instant` in UTC everywhere. Displayed in Africa/Lagos by clients.
+- Time: `Instant` in UTC everywhere, read from an injected `Clock`. Displayed in Africa/Lagos by clients.
+- Calendar dates (`tenancies.starts_on`, `ends_on`): `DATE`, the current date in Africa/Lagos, because that is the day the landlord and tenant see.
 
 ### 6.2 Entities (core fields)
 
 All tables: `id UUID PK`, `created_at TIMESTAMPTZ`, snake_case columns. Mutable tables also have `updated_at` and `version BIGINT` (optimistic locking).
 
-**users**: `email UNIQUE`, `phone UNIQUE`, `password_hash`, `full_name`, `role` (LANDLORD, TENANT, ADMIN), `status` (ACTIVE, DISABLED)
+**users**: `email UNIQUE`, `phone UNIQUE NOT NULL`, `password_hash`, `full_name`, `role` (LANDLORD, TENANT, ADMIN), `status` (ACTIVE, DISABLED). Uniqueness only holds on one canonical form, so both have a CHECK: `email` is trimmed and lower case, `phone` is E.164 (`+2348031234567`). Registration converts `08031234567` and `2348031234567` to E.164.
 
-**refresh_tokens**: `user_id`, `token_hash UNIQUE`, `family_id`, `expires_at`, `revoked_at`, `replaced_by`
+**refresh_tokens**: `user_id`, `token_hash UNIQUE` (SHA-256 hex), `family_id`, `expires_at`, `revoked_at`, `replaced_by`. CHECK: a replaced token is always revoked.
 
 **buildings**: `landlord_id`, `name`, `address`, `state`, `lga`
 
-**units**: `building_id`, `label` (e.g. "Flat 3B"), UNIQUE(`building_id`, `label`)
+**units**: `building_id`, `label` (e.g. "Flat 3B"). Unique index on (`building_id`, `lower(label)`), and labels are stored trimmed with inner spaces collapsed, so "Flat 3B" and "flat  3b" cannot both exist in one building.
 
-**tenancies**: `unit_id`, `tenant_id`, `starts_on`, `ends_on NULL`, `status` (ACTIVE, ENDED). Partial unique index: one ACTIVE tenancy per unit.
+**tenant_invites**: `unit_id`, `code_hash UNIQUE` (SHA-256 hex), `created_by`, `expires_at`, `accepted_at`, `accepted_by`, `revoked_at`. Partial unique index: one open invite per unit (`accepted_at` and `revoked_at` both NULL). See 8.5.
 
-**meters**: `unit_id UNIQUE NULL`, `serial_number UNIQUE`, `gateway_type` (SIMULATED, TUYA), `external_device_id`, `status`, `last_register_wh`, `last_reading_at`, `credit_balance_wh`, `low_credit_threshold_wh`
+**tenancies**: `unit_id`, `tenant_id`, `starts_on`, `ends_on NULL`, `status` (ACTIVE, ENDED). Partial unique index: one ACTIVE tenancy per unit. CHECKs: `ends_on` is set exactly when ENDED, and is not before `starts_on`. Ended rows stay as history.
+
+**meters**: `landlord_id`, `unit_id UNIQUE NULL`, `serial_number UNIQUE`, `gateway_type` (SIMULATED, TUYA), `external_device_id`, `status`, `last_register_wh`, `last_reading_at`, `credit_balance_wh`, `low_credit_threshold_wh`. `landlord_id` gives a meter an owner before it is assigned to a unit. Serials are stored upper case (CHECK) and are unique across all landlords, since a serial is one physical device. CHECK: a TUYA meter needs `external_device_id`. `credit_balance_wh` has no sign check, because credit can overshoot below zero before cutoff (7.2). `low_credit_threshold_wh` defaults to 5000 when registering. An assigned meter cannot be moved to another unit (see 16).
 
 **tariff_plans**: `building_id`, `name`
 **tariff_versions**: `plan_id`, `rate_kobo_per_kwh`, `vat_basis_points` (750 = 7.5%), `platform_fee_basis_points`, `effective_from`. Versions are immutable. The active version is the latest with `effective_from <= now`.
@@ -310,9 +318,17 @@ Fallbacks: a reconciliation job runs every 5 minutes and verifies PAYMENT_PENDIN
 | `energy.events.v1` | aggregate_id | outbox relay | vending (credit push), alerting |
 | `meter.readings.v1.DLT` | meter_id | error handler | manual replay |
 
+### 8.5 Tenant onboarding
+
+1. `POST /api/v1/units/{id}/invites` by the owning landlord. Refused with 409 `UNIT_OCCUPIED` if the unit has an active tenancy. Any earlier open invite for the unit is cancelled.
+2. The response holds the code (`K7MPQ-2XR9T`): 10 characters without look-alikes, about 49 bits. It is shown only this once, stored only as a SHA-256 hash, works once and expires after 7 days. Case, spaces and dashes are ignored when it is typed.
+3. The tenant calls `POST /api/v1/auth/register` with `inviteCode`. Its presence is what makes the account a TENANT: clients never send a role.
+4. In one transaction: insert the user, lock the invite row (`SELECT ... FOR UPDATE`), insert the tenancy, mark the invite accepted. Redeeming requires an existing transaction (`Propagation.MANDATORY`). A bad code or a duplicate account leaves no user behind and an unused code still usable.
+5. `POST /api/v1/units/{id}/tenancy/end` ends the tenancy and frees the unit for a new invite.
+
 ## 9. API (v1)
 
-All endpoints under `/api/v1`. JSON. Pagination via `page`, `size` (max 100), returns `{ content, page, size, totalElements }`. Mutating money endpoints require an `Idempotency-Key` header.
+All endpoints under `/api/v1`. JSON. Pagination via `page` (default 0) and `size` (1 to 100, default set per endpoint; beyond the limit is a 400, not clamped), returns `{ content, page, size, totalElements }`. Lists use a stable sort ending in `id`. Mutating money endpoints require an `Idempotency-Key` header.
 
 **Auth**
 | Method | Path | Role |
@@ -323,6 +339,10 @@ All endpoints under `/api/v1`. JSON. Pagination via `page`, `size` (max 100), re
 | POST | /auth/logout | authenticated |
 | GET | /me | authenticated |
 
+- `register` body: `email`, `phone`, `password` (at least 10 characters, at most 72 bytes), `fullName`, optional `inviteCode` (present means TENANT, absent means LANDLORD). Returns 201 with the user.
+- `login` and `refresh` return `accessToken`, `tokenType` (`Bearer`), `expiresIn`, `refreshToken`, `refreshTokenExpiresIn` (seconds).
+- `refresh` and `logout` bodies: `refreshToken`. `logout` revokes that session's token family and always returns 204, so it cannot probe which tokens exist. The access token stays valid until it expires.
+
 **Property**
 | Method | Path | Role |
 |---|---|---|
@@ -331,6 +351,9 @@ All endpoints under `/api/v1`. JSON. Pagination via `page`, `size` (max 100), re
 | POST, GET | /buildings/{id}/units | LANDLORD (owner) |
 | POST | /units/{id}/invites | LANDLORD (owner): creates tenant invite code |
 | POST | /units/{id}/tenancy/end | LANDLORD (owner) |
+
+- `PATCH /buildings/{id}` is partial: absent fields stay as they are, blank ones are a 400.
+- `POST /units/{id}/invites` returns 201 with `code`, `unitId`, `expiresAt`. See 8.5.
 
 **Meters and tariffs**
 | Method | Path | Role |
@@ -341,6 +364,10 @@ All endpoints under `/api/v1`. JSON. Pagination via `page`, `size` (max 100), re
 | POST | /meters/{id}/suspend, /resume | LANDLORD (owner) |
 | GET | /meters/{id}/readings?from&to | owner, occupant |
 | POST, GET | /buildings/{id}/tariffs | LANDLORD (owner): new version |
+
+- `POST /meters` body: `serialNumber`, `gatewayType`, `externalDeviceId` (required for TUYA), optional `lowCreditThresholdWh`.
+- `PUT /meters/{id}/unit` body: `unitId`. Repeating it for the same unit is a no-op. 409 if the unit already has a meter or the meter is on another unit.
+- `GET /meters/{id}`: a former tenant, another tenant and another landlord all get 404.
 
 **Wallet and payments**
 | Method | Path | Role |
@@ -385,27 +412,40 @@ A single `@RestControllerAdvice` maps exceptions to RFC 9457 `ProblemDetail`:
 
 | Exception | Status | code |
 |---|---|---|
-| `MethodArgumentNotValidException` | 400 | VALIDATION_FAILED (with `errors[]` field list) |
-| `AuthenticationException` | 401 | UNAUTHENTICATED |
-| `AccessDeniedException`, `NotOwnerException` | 403 | FORBIDDEN |
-| `ResourceNotFoundException` | 404 | NOT_FOUND |
+| `MethodArgumentNotValidException`, `ConstraintViolationException` | 400 | VALIDATION_FAILED (with `errors[]` field list) |
+| `InvalidRequestException` (rules only a service can check), malformed JSON | 400 | VALIDATION_FAILED |
+| `AuthenticationException`, `InvalidCredentialsException`, `InvalidRefreshTokenException` | 401 | UNAUTHENTICATED |
+| `AccessDeniedException` (wrong role) | 403 | FORBIDDEN |
+| `ResourceNotFoundException`, unknown route | 404 | NOT_FOUND |
+| Wrong HTTP method | 405 | METHOD_NOT_ALLOWED |
+| Unacceptable `Accept` header | 406 | NOT_ACCEPTABLE |
+| Unsupported `Content-Type` | 415 | UNSUPPORTED_MEDIA_TYPE |
 | `IllegalStateTransitionException` | 409 | ILLEGAL_STATE_TRANSITION |
 | `OptimisticLockingFailureException` (after retries) | 409 | CONCURRENT_MODIFICATION |
+| `DuplicateAccountException` (email or phone taken) | 409 | DUPLICATE_ACCOUNT |
+| `DuplicateResourceException` (unit label, meter serial, meter assignment) | 409 | DUPLICATE_RESOURCE |
+| `UnitOccupiedException` | 409 | UNIT_OCCUPIED |
 | `IdempotencyConflictException` (same key, different body) | 422 | IDEMPOTENCY_KEY_REUSED |
+| `InvalidInviteCodeException` (unknown, used, cancelled or expired, all alike) | 422 | INVALID_INVITE_CODE |
 | `InsufficientWalletBalanceException` | 422 | INSUFFICIENT_WALLET_BALANCE |
 | `MeterNotOperationalException` | 422 | METER_NOT_OPERATIONAL |
 | `RateLimitExceededException` | 429 | RATE_LIMITED (+ `Retry-After`) |
 | `PaymentGatewayException` | 502 | PAYMENT_GATEWAY_ERROR |
 | anything else | 500 | INTERNAL_ERROR (no stack trace in body, logged with traceId) |
 
-Ownership failures on another landlord's resources return 404, not 403, so resource IDs cannot be probed.
+Ownership failures on another landlord's resources return 404, not 403, with the same body as a resource that does not exist, so resource IDs cannot be probed. 403 is only for the wrong role.
+
+Failures inside the security filter chain never reach `@RestControllerAdvice`, so 401 and 403 are handed to Spring MVC's exception resolver and get the same problem detail, plus `WWW-Authenticate: Bearer` (`error="invalid_token"` for a bad token). Clients branch on `code`, so names must not change once released.
 
 ## 11. Security
 
-- Passwords: BCrypt (strength 12).
-- Access token: JWT, 15 minutes, HS256 secret from env (`JWT_SECRET`), claims `sub`, `role`.
-- Refresh token: opaque random 256-bit, stored hashed, 30 days, rotated on every use. Reuse of a rotated token revokes the whole family.
-- Ownership checks live in services (`OwnershipService`), not only in controllers.
+- Passwords: BCrypt (strength 12; only the test profile lowers it, for speed). At least 10 characters. More than 72 bytes is refused, because BCrypt silently ignores the rest.
+- Login: one message and exactly one BCrypt check for an unknown email, a wrong password and a disabled account (a dummy hash when the email is unknown), so neither the body nor the timing reveals which emails are registered.
+- Access token: JWT, 15 minutes, HS256 secret from env (`JWT_SECRET`, at least 32 bytes, or the app refuses to start), claims `iss`, `sub`, `iat`, `exp`, `role` and no personal data. The algorithm is pinned to HS256, with 30 seconds of clock skew allowed.
+- Refresh token: opaque random 256-bit, stored as SHA-256, 30 days from each rotation, rotated on every use. Reuse of a rotated token revokes the whole family, and that revocation is committed even though the request fails with 401. The row is locked during refresh, so of several concurrent uses exactly one succeeds and the rest count as reuse. A disabled user's family is revoked on their next refresh.
+- Ownership checks live in services, not only in controllers: `OwnershipService` for buildings and units. A meter has its own `landlord_id`, checked in `MeterServiceImpl`. Role checks use `@PreAuthorize` on controllers.
+- `/me` reloads the user, so a valid token for a disabled user gets 401 there. Other endpoints trust the token until it expires (see 16).
+- Invite codes: see 8.5.
 - Paystack webhook: HMAC-SHA512 of the raw body with the secret key, compared in constant time. Endpoint excluded from JWT but rate limited and IP allowlist optional.
 - Rate limits (Bucket4j + Redis): login 5/min per IP+email, money endpoints 20/min per user, global 300/min per IP.
 - No secrets in the repo. `.env.example` documents every variable.
@@ -413,7 +453,7 @@ Ownership failures on another landlord's resources return 404, not 403, so resou
 
 ## 12. Observability
 
-- `X-Correlation-Id` header accepted or generated, put in MDC, returned in responses and included as `traceId` in problem details.
+- `X-Correlation-Id` header accepted if it is 1 to 64 characters of `[A-Za-z0-9._-]`, otherwise replaced with a generated UUID (this blocks log injection). Put in MDC by a filter that runs before Spring Security, returned in responses, printed in every log line and included as `traceId` in problem details.
 - JSON logs in prod profile. Payment logs always include `intentId` and `correlationId`.
 - Metrics: `meterpay.payments.paid`, `meterpay.vends.total`, `meterpay.readings.ingested`, `meterpay.readings.lag`, `meterpay.ledger.imbalance`.
 - Actuator health groups for liveness and readiness (DB, Redis, Kafka).
@@ -423,13 +463,15 @@ Ownership failures on another landlord's resources return 404, not 403, so resou
 | Layer | Tooling | What |
 |---|---|---|
 | Unit | JUnit 5, AssertJ | money/energy math, tariff calc, state machines, hash chain |
-| Slice | `@WebMvcTest` | controllers, validation, problem details |
-| Integration | `@SpringBootTest` + Testcontainers (Postgres, Redis, Kafka) | flows end to end, Flyway migrations, real constraints |
+| Slice | `@WebMvcTest`, named `*Test` and run by Surefire because they need no Docker | controllers, validation, problem details |
+| Integration | `@SpringBootTest` + Testcontainers (Postgres, Redis, Kafka), named `*IT`, run by Failsafe, sharing singleton containers | flows end to end, Flyway migrations, real constraints |
 | External | WireMock | Paystack init, verify, failures, timeouts |
-| Architecture | ArchUnit | rules in 5.2 |
+| Architecture | ArchUnit | rules in 5.2, each also run against deliberately broken fixtures to prove it fails |
 | Concurrency | `ExecutorService` + `CountDownLatch` | 20 parallel purchases on one wallet never overdraw; double webhook credits once |
 
-Coverage gate: JaCoCo fails the build below 75% line coverage on `serviceImpl`, `domain` and `ledger` packages. Badge published in README.
+Coverage gate: JaCoCo fails the build below 75% line coverage on `serviceImpl`, `domain` and `ledger` packages (per package; 60% until M8-06). Badge published in README.
+
+Integration tests share one database and do not clean it up, so each test creates its own users with unique emails and phones, or rolls back.
 
 Required named tests (portfolio evidence):
 - `ConcurrentPurchaseIT.parallelPurchasesNeverOverdrawWallet`
@@ -444,7 +486,8 @@ Required named tests (portfolio evidence):
 ## 14. Local run and deployment
 
 - `docker compose up` starts Postgres, Redis, Kafka (KRaft), the API and the meter simulator with seed data (one landlord, one building, three units, three tenants, three simulated meters).
-- Profiles: `local` (simulator, Paystack test keys or WireMock stub), `test`, `prod` (Tuya optional, JSON logs).
+- Profiles: `local` (simulator, Paystack test keys or WireMock stub; reads `.env`), `test` (fixed test JWT secret, BCrypt strength 4), `prod` (Tuya optional, JSON logs).
+- Ports and secrets are configured in `.env`, copied from `.env.example`. `JWT_SECRET` has no default: generate one with `openssl rand -base64 48`.
 - Dockerfile: multi-stage, layered jar, non-root user.
 - Prod target: Oracle Always Free VM behind Nginx, subdomain `meterpay.theodomart.com`, Let's Encrypt.
 
@@ -461,3 +504,21 @@ Required named tests (portfolio evidence):
 | 0007 | Idempotency via DB unique constraint |
 | 0008 | Hash-chained audit log |
 | 0009 | MeterGateway abstraction and simulator |
+
+## 16. Open design questions
+
+Not decided yet. Each one needs a decision before the task named in the last column.
+
+| Question | Why it matters | Needed by |
+|---|---|---|
+| How does a tenant find their own meter or tenancy? There is no such endpoint. | `POST /meters/{id}/purchases` needs a meter id the tenant has no way to learn. | M5-03 |
+| Should there be a `GET /meters` for landlords? | A landlord cannot list their meters without knowing the ids. | Landlord dashboard |
+| How is an ADMIN created? Registration only makes LANDLORD and TENANT. | `/admin/ledger/trial-balance` and `/admin/audit/verify` are unreachable without one. | M3-07 |
+| Can a tenant with an account join another unit? Today a code needs a new account, so a new email and phone. | Tenants who move flats are locked out of their history and wallet. | M3-02 |
+| How is a meter replaced or moved? State 7.2 has DECOMMISSIONED but 9 has no endpoint, and an assigned meter cannot move. | Faulty meters need replacing, and credit belongs to the tenant. | M2-02 |
+| Should invite codes be HMAC-hashed with a server secret? | About 49 bits under plain SHA-256 could be brute-forced offline from a leaked table inside the 7-day window. | Before launch |
+| Should `outbox_events` carry `correlation_id`, copied to a Kafka header by the relay? | The relay runs later on another thread, so without it a purchase cannot be traced end to end. | M5-01 |
+| Should concurrent refreshes get a short grace window? | A mobile client that retries on a bad connection is treated as reuse and logged out. | Mobile client testing |
+| Should disabling a user take effect immediately on every endpoint? | Only `/me` and refresh check today, so a disabled user's access token works for up to 15 minutes. | M7-04 |
+| Should `register` and `refresh` get their own rate limit? 11 only covers login, money endpoints and a global limit. | Guessing invite codes and mass registration are limited only by the global 300/min per IP. | M8-01 |
+| Which task implements CORS? 11 requires it, but the plan has no task for it. | Browser frontends cannot call the API without it. | Landlord web app |
