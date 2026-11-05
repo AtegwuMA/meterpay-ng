@@ -53,7 +53,7 @@ Claude Code implements that one task, runs `./mvnw verify`, and stops. You revie
   - Commit: `feat(identity): rotate refresh tokens with reuse detection`
 - [x] **M1-04 Buildings and units.** Migrations, entities, CRUD endpoints for landlord. Pagination.
   - Commit: `feat(property): add buildings and units endpoints`
-- [ ] **M1-05 Ownership enforcement.** `OwnershipService`; another landlord's building returns 404.
+- [x] **M1-05 Ownership enforcement.** `OwnershipService`; another landlord's building returns 404.
   - Done when: IT with two landlords proves isolation.
   - Commit: `feat(security): enforce landlord ownership on property resources`
 - [ ] **M1-06 Tenant invites and tenancy.** Invite code per unit, tenant registration with code, `tenancies` with one-active-per-unit partial index, end tenancy.

@@ -11,6 +11,7 @@ import com.theodomart.energy.property.service.BuildingDetails;
 import com.theodomart.energy.property.service.BuildingView;
 import com.theodomart.energy.property.service.PropertyService;
 import com.theodomart.energy.property.service.UnitView;
+import com.theodomart.energy.security.service.OwnershipService;
 import java.time.Clock;
 import java.util.UUID;
 import org.hibernate.exception.ConstraintViolationException;
@@ -37,11 +38,15 @@ public class PropertyServiceImpl implements PropertyService {
 
 	private final UnitRepository units;
 
+	private final OwnershipService ownership;
+
 	private final Clock clock;
 
-	public PropertyServiceImpl(BuildingRepository buildings, UnitRepository units, Clock clock) {
+	public PropertyServiceImpl(BuildingRepository buildings, UnitRepository units, OwnershipService ownership,
+			Clock clock) {
 		this.buildings = buildings;
 		this.units = units;
+		this.ownership = ownership;
 		this.clock = clock;
 	}
 
@@ -111,7 +116,8 @@ public class PropertyServiceImpl implements PropertyService {
 	}
 
 	private Building ownedBuilding(UUID landlordId, UUID buildingId) {
-		return buildings.findByIdAndLandlordId(buildingId, landlordId)
+		ownership.requireBuildingOwner(landlordId, buildingId);
+		return buildings.findById(buildingId)
 			.orElseThrow(() -> new ResourceNotFoundException("Building " + buildingId + " was not found."));
 	}
 

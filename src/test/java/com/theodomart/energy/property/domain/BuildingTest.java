@@ -22,8 +22,7 @@ class BuildingTest {
 	void newBuildingIsOwnedByItsLandlordWithTrimmedFields() {
 		assertThat(building.getId()).isNotNull();
 		assertThat(building.getName()).isEqualTo("Sunrise Court");
-		assertThat(building.isOwnedBy(landlordId)).isTrue();
-		assertThat(building.isOwnedBy(UUID.randomUUID())).isFalse();
+		assertThat(building.getLandlordId()).isEqualTo(landlordId);
 		assertThat(building.getCreatedAt()).isEqualTo(NOW).isEqualTo(building.getUpdatedAt());
 	}
 
