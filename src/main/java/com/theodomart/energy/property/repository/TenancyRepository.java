@@ -12,4 +12,6 @@ public interface TenancyRepository extends JpaRepository<Tenancy, UUID> {
 
 	boolean existsByUnitIdAndStatus(UUID unitId, TenancyStatus status);
 
+	boolean existsByUnitIdAndTenantIdAndStatus(UUID unitId, UUID tenantId, TenancyStatus status);
+
 }

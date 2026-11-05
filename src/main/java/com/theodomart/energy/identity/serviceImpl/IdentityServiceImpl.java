@@ -2,6 +2,7 @@ package com.theodomart.energy.identity.serviceImpl;
 
 import com.theodomart.energy.common.domain.Role;
 import com.theodomart.energy.common.error.InvalidRequestException;
+import com.theodomart.energy.common.persistence.ConstraintViolations;
 import com.theodomart.energy.identity.config.IdentityProperties;
 import com.theodomart.energy.identity.domain.OpaqueTokens;
 import com.theodomart.energy.identity.domain.PhoneNumbers;
@@ -25,7 +26,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
-import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -196,7 +196,7 @@ public class IdentityServiceImpl implements IdentityService {
 	}
 
 	private static RuntimeException duplicateOrRethrow(DataIntegrityViolationException ex) {
-		String constraint = constraintName(ex);
+		String constraint = ConstraintViolations.constraintName(ex);
 		if ("uk_users_email".equals(constraint)) {
 			return new DuplicateAccountException("email");
 		}
@@ -204,15 +204,6 @@ public class IdentityServiceImpl implements IdentityService {
 			return new DuplicateAccountException("phone number");
 		}
 		return ex;
-	}
-
-	private static String constraintName(Throwable ex) {
-		for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
-			if (cause instanceof ConstraintViolationException violation) {
-				return violation.getConstraintName();
-			}
-		}
-		return null;
 	}
 
 	private static UserView toView(User user) {

@@ -3,6 +3,7 @@ package com.theodomart.energy.property.serviceImpl;
 import com.theodomart.energy.common.error.DuplicateResourceException;
 import com.theodomart.energy.common.error.InvalidRequestException;
 import com.theodomart.energy.common.error.ResourceNotFoundException;
+import com.theodomart.energy.common.persistence.ConstraintViolations;
 import com.theodomart.energy.property.domain.Building;
 import com.theodomart.energy.property.domain.Unit;
 import com.theodomart.energy.property.repository.BuildingRepository;
@@ -97,7 +98,7 @@ public class PropertyServiceImpl implements PropertyService {
 			units.saveAndFlush(unit);
 		}
 		catch (DataIntegrityViolationException ex) {
-			if ("uk_units_building_label".equals(ConstraintNames.of(ex))) {
+			if ("uk_units_building_label".equals(ConstraintViolations.constraintName(ex))) {
 				throw new DuplicateResourceException("A unit labelled \"" + unit.getLabel()
 						+ "\" already exists in this building.");
 			}

@@ -2,6 +2,7 @@ package com.theodomart.energy.property.serviceImpl;
 
 import com.theodomart.energy.common.error.DuplicateResourceException;
 import com.theodomart.energy.common.error.ResourceNotFoundException;
+import com.theodomart.energy.common.persistence.ConstraintViolations;
 import com.theodomart.energy.property.domain.InviteCode;
 import com.theodomart.energy.property.domain.Tenancy;
 import com.theodomart.energy.property.domain.TenancyStatus;
@@ -69,7 +70,7 @@ public class TenancyServiceImpl implements TenancyService {
 			invites.saveAndFlush(invite);
 		}
 		catch (DataIntegrityViolationException ex) {
-			if ("uk_tenant_invites_one_open_per_unit".equals(ConstraintNames.of(ex))) {
+			if ("uk_tenant_invites_one_open_per_unit".equals(ConstraintViolations.constraintName(ex))) {
 				throw new DuplicateResourceException("Another invite for this unit was just created. Try again.");
 			}
 			throw ex;
@@ -92,7 +93,7 @@ public class TenancyServiceImpl implements TenancyService {
 			tenancies.saveAndFlush(tenancy);
 		}
 		catch (DataIntegrityViolationException ex) {
-			if ("uk_tenancies_one_active_per_unit".equals(ConstraintNames.of(ex))) {
+			if ("uk_tenancies_one_active_per_unit".equals(ConstraintViolations.constraintName(ex))) {
 				throw new UnitOccupiedException();
 			}
 			throw ex;
@@ -114,6 +115,12 @@ public class TenancyServiceImpl implements TenancyService {
 		tenancies.flush();
 		log.info("Tenancy ended: tenancyId={} unitId={}", tenancy.getId(), unitId);
 		return toView(tenancy);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public boolean isActiveTenant(UUID userId, UUID unitId) {
+		return tenancies.existsByUnitIdAndTenantIdAndStatus(unitId, userId, TenancyStatus.ACTIVE);
 	}
 
 	private static LocalDate today(Instant now) {

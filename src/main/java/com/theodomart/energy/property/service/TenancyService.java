@@ -23,4 +23,7 @@ public interface TenancyService {
 	/** @throws com.theodomart.energy.common.error.ResourceNotFoundException if no active tenancy exists */
 	TenancyView endTenancy(UUID landlordId, UUID unitId);
 
+	/** Whether the user is the current tenant of the unit. A former tenant is not. */
+	boolean isActiveTenant(UUID userId, UUID unitId);
+
 }
