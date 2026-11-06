@@ -128,8 +128,10 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(outbox): add transactional outbox with kafka relay`
 - [ ] **M5-02 Meter credit ledger.** `meter_credit_entries` append-only, `MeterCreditService.apply(delta)` with optimistic locking on meter.
   - Commit: `feat(vending): add append-only meter credit ledger`
-- [ ] **M5-03 Buy energy.** `POST /meters/{id}/purchases` per DESIGN §8.2 in one transaction, idempotent, occupant only, 422 when wallet short or meter SUSPENDED/DECOMMISSIONED.
+- [ ] **M5-03 Buy energy.** `POST /meters/{id}/purchases` per DESIGN §8.2 in one transaction, idempotent, occupant only, 422 when wallet short or meter SUSPENDED/DECOMMISSIONED. The response carries the full breakdown (VAT, fee, net, energy), so it doubles as a receipt.
   - Commit: `feat(vending): let tenants buy energy from their wallet`
+- [ ] **M5-03a Purchase quote.** `GET /meters/{id}/purchase-quote?amountKobo=`, occupant only, changes nothing. Runs the same calculator and returns VAT, fee, net, energy and the all-in kobo per kWh (null when the amount buys no energy), so clients only display numbers. Same amount limits as M5-03.
+  - Commit: `feat(vending): quote a purchase before paying`
 - [ ] **M5-04 MeterGateway and simulator.** Interface (`pushCredit`, `setRelay`), `SimulatedMeterGateway` storing device state in memory, enabled on `local` and `test`.
   - Commit: `feat(gateway): add meter gateway port with simulator`
 - [ ] **M5-05 Credit push consumer.** Consumes `EnergyPurchased`, calls gateway, closes relay if meter was CUTOFF, retries with backoff, marks purchase CREDIT_PUSHED.

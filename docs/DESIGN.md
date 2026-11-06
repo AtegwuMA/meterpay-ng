@@ -150,7 +150,7 @@ Modules may depend on each other's `service` packages in both directions as long
 
 - Money: `long` kobo, wrapped in a `Money` record. `BIGINT` in Postgres. Never `double`, `float` or `BigDecimal` in entities.
 - Energy: `long` watt-hours (Wh), wrapped in an `Energy` record. `BIGINT` in Postgres.
-- Tariff rates: kobo per kWh as `long`. Conversion from money to energy uses integer arithmetic with explicit rounding toward the platform (floor of Wh delivered), documented in ADR-0005.
+- Tariff rates: kobo per kWh as `long`. Conversion from money to energy uses integer arithmetic with explicit rounding that never gives the tenant more energy than they paid for (floor of Wh delivered), documented in ADR-0005.
 - Time: `Instant` in UTC everywhere, read from an injected `Clock`. Displayed in Africa/Lagos by clients.
 - Calendar dates (`tenancies.starts_on`, `ends_on`): `DATE`, the current date in Africa/Lagos, because that is the day the landlord and tenant see.
 
@@ -222,7 +222,7 @@ A landlord can withdraw a version only before it starts (not built yet, M7-04a).
 | TENANT_WALLET | | 500000 |
 
 **Energy purchase (₦2,000, VAT 7.5% inclusive, fee 2%):**
-- gross = 200000, vat = gross × 750 / 10750 (floor) = 13953, fee = (gross − vat) × 200 / 10000 (floor) = 3720, net = gross − vat − fee = 182327
+- gross = 200000, vat = gross × 750 / 10750 (rounded half up, ADR-0010) = 13953, fee = (gross − vat) × 200 / 10000 (floor) = 3720, net = gross − vat − fee = 182327
 
 | Account | Debit | Credit |
 |---|---|---|
@@ -402,6 +402,7 @@ All endpoints under `/api/v1`. JSON. Pagination via `page` (default 0) and `size
 | Method | Path | Role |
 |---|---|---|
 | POST | /meters/{id}/purchases | TENANT (occupant) |
+| GET | /meters/{id}/purchase-quote?amountKobo= | TENANT (occupant) (M5-03a) |
 | GET | /meters/{id}/purchases | owner, occupant |
 
 **Alerts, reports, admin**
@@ -527,6 +528,7 @@ Required named tests (portfolio evidence):
 | 0007 | Idempotency via DB unique constraint |
 | 0008 | Hash-chained audit log |
 | 0009 | MeterGateway abstraction and simulator |
+| 0010 | Round VAT half up (supersedes the VAT rounding in 0005) |
 
 ## 16. Open design questions
 
@@ -541,7 +543,8 @@ Not decided yet. Each one needs a decision before the point named in the last co
 | Should `register` and `refresh` get their own rate limit? 11 only covers login, money endpoints and a global limit. | Guessing invite codes and mass registration are limited only by the global 300/min per IP. | M8-01 |
 | Should suspending a meter open the relay, and resuming close it? 7.2 names relay commands only for CUTOFF, so today a suspension blocks purchases (M5-03) but leaves the power on. | A landlord may expect suspend to cut the supply, while cutting it could be used to pressure a tenant who has paid. | M5-05 |
 | Do readings keep deducting credit while a meter is suspended, and can `resume` land on a state the credit no longer fits? | A meter suspended as ACTIVE can reach zero credit while suspended, and only resume or decommissioning can take a meter out of SUSPENDED. | M6-04 |
-| What is the smallest purchase? Rounding down means a very small amount buys 0 Wh: at the worked example's rates, 23 kobo or less buys nothing. | Without a minimum, M5-03 would take the tenant's money and deliver no energy. VAT or the fee can also round to 0, and `postings.amount_kobo > 0` means those lines must be left out of the journal entry, not posted as zero. | M5-03 |
+| Who pays the platform fee? Today the tenant does, through fewer units: at the worked example's rates the all-in price is about ₦246.82/kWh, of which ₦241.88 is the rate plus VAT. If the landlord paid, energy would be (gross − VAT) / rate, and the landlord's income would fall by the fee. | The landlord is the one using the service, while the tenant pays for it without seeing it. Changing this changes the calculator, the posting recipe and landlords' income. | M5-03 |
+| What is the smallest purchase? Rounding down means a very small amount buys 0 Wh: at the worked example's rates, 24 kobo or less buys nothing. | Without a minimum, M5-03 would take the tenant's money and deliver no energy. VAT or the fee can also round to 0, and `postings.amount_kobo > 0` means those lines must be left out of the journal entry, not posted as zero. | M5-03 |
 | Which task implements CORS? 11 requires it, but the plan has no task for it. | Browser frontends cannot call the API without it. | Landlord web app |
 
 ## 17. Recorded decisions

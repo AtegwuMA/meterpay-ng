@@ -23,7 +23,11 @@ public class PricingCalculatorImpl implements PricingCalculator {
 
 		// The tenant's amount already includes VAT, so VAT is 750/10750 of it, not 7.5% of it.
 		long vatBasisPoints = pricing.vatBasisPoints();
-		long vat = Math.multiplyExact(amount, vatBasisPoints) / (BASIS_POINTS + vatBasisPoints);
+		long divisor = BASIS_POINTS + vatBasisPoints;
+		// Half up (ADR-0010): always rounding down would under-collect tax on every purchase. Doubling keeps it exact
+		// when the divisor is odd.
+		long vat = Math.addExact(Math.multiplyExact(Math.multiplyExact(amount, vatBasisPoints), 2L), divisor)
+				/ (2 * divisor);
 		long afterVat = amount - vat;
 
 		long fee = Math.multiplyExact(afterVat, pricing.version().platformFeeBasisPoints()) / BASIS_POINTS;

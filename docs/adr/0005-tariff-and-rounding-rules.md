@@ -1,6 +1,6 @@
 # ADR-0005: Tariff, VAT and fee rounding rules
 
-- **Status:** Accepted
+- **Status:** Accepted, except the VAT rounding: superseded by ADR-0010
 - **Date:** 2026-11-06
 - **Related:** DESIGN §6.1, §6.2, §6.4, §8.2, §16; plan M2-04, M2-04a, M2-05, M5-03; ADR-0002
 
