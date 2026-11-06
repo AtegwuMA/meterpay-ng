@@ -76,27 +76,27 @@ final class ArchitectureRules {
 			.allowEmptyShould(true);
 	}
 
-	/** Rule 4a: ledger and audit repositories cannot inherit delete methods from Spring Data. */
+	/** Rule 4a: ledger, audit and tariff repositories cannot inherit delete methods from Spring Data. */
 	static ArchRule appendOnlyRepositoriesDoNotExtendCrudRepository(String root) {
 		return noClasses().that()
-			.resideInAnyPackage(root + ".ledger.repository..", root + ".audit.repository..")
+			.resideInAnyPackage(root + ".ledger.repository..", root + ".audit.repository..", root + ".tariff.repository..")
 			.should()
 			.beAssignableTo(CrudRepository.class)
-			.because("CrudRepository and JpaRepository expose deleteById and friends; ledger and audit are"
+			.because("CrudRepository and JpaRepository expose deleteById and friends; ledger, audit and tariff are"
 					+ " insert only (DESIGN 5.2 rule 4)")
 			.allowEmptyShould(true);
 	}
 
-	/** Rule 4b: ledger and audit repositories do not declare delete methods of their own either. */
+	/** Rule 4b: ledger, audit and tariff repositories do not declare delete methods of their own either. */
 	static ArchRule appendOnlyRepositoriesDeclareNoDeleteMethods(String root) {
 		return noMethods().that()
 			.areDeclaredInClassesThat()
-			.resideInAnyPackage(root + ".ledger.repository..", root + ".audit.repository..")
+			.resideInAnyPackage(root + ".ledger.repository..", root + ".audit.repository..", root + ".tariff.repository..")
 			.should()
 			.haveNameStartingWith("delete")
 			.orShould()
 			.haveNameStartingWith("remove")
-			.because("ledger and audit are insert only; corrections are new entries (DESIGN 5.2 rule 4)")
+			.because("ledger, audit and tariff are insert only; corrections are new entries (DESIGN 5.2 rule 4)")
 			.allowEmptyShould(true);
 	}
 

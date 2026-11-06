@@ -141,7 +141,7 @@ Modules may depend on each other's `service` packages in both directions as long
 1. Controllers and any other consumer depend on `service` interfaces, never on `serviceImpl`.
 2. A module may only use another module through its `service` package and its `event` records (the contract its Kafka consumers read). No cross-module repository or entity access.
 3. Controllers never return JPA entities, not even inside generics such as `ResponseEntity<List<Entity>>`. Only records.
-4. `ledger` and `audit` repositories expose no delete methods: they may not extend `CrudRepository` or `JpaRepository`, which bring `deleteById` and friends, nor declare `delete*` or `remove*` methods.
+4. `ledger`, `audit` and `tariff` repositories expose no delete methods: they may not extend `CrudRepository` or `JpaRepository`, which bring `deleteById` and friends, nor declare `delete*` or `remove*` methods.
 5. No class outside `common` declares a `double`, `Double`, `float`, `Float` or `BigDecimal` field. This covers every field, not only money and energy, so renaming a field cannot dodge it (ADR-0002). Nothing here needs fractions: voltage is in decivolts, power in whole watts.
 
 ## 6. Domain model
@@ -172,8 +172,8 @@ All tables: `id UUID PK`, `created_at TIMESTAMPTZ`, snake_case columns. Mutable 
 
 **meters**: `landlord_id`, `unit_id UNIQUE NULL`, `serial_number UNIQUE`, `gateway_type` (SIMULATED, TUYA), `external_device_id`, `status`, `last_register_wh`, `last_reading_at`, `credit_balance_wh`, `low_credit_threshold_wh`. `landlord_id` gives a meter an owner before it is assigned to a unit. Serials are stored upper case (CHECK) and are unique across all landlords, since a serial is one physical device. CHECK: a TUYA meter needs `external_device_id`. `credit_balance_wh` has no sign check, because credit can overshoot below zero before cutoff (7.2). `low_credit_threshold_wh` defaults to 5000 when registering. `status_before_suspension` holds the state to resume to, and is set exactly when `status` is SUSPENDED (CHECK). One row is one installation, so an assigned meter cannot be moved to another unit (see 17). From M7-07: `assigned_at`, `decommissioned_at`, and `serial_number` and (`gateway_type`, `external_device_id`) become unique only among meters that are not decommissioned, so a refurbished device can be registered again as a new row.
 
-**tariff_plans**: `building_id`, `name`
-**tariff_versions**: `plan_id`, `rate_kobo_per_kwh`, `vat_basis_points` (750 = 7.5%), `platform_fee_basis_points`, `effective_from`. Versions are immutable. The active version is the latest with `effective_from <= now`.
+**tariff_plans**: `building_id UNIQUE`, `name`. One plan per building, because a purchase only knows its meter's building and so has no way to choose between plans. The plan is created with the building's first version and does not change after that.
+**tariff_versions**: `plan_id`, `rate_kobo_per_kwh`, `vat_basis_points` (750 = 7.5%), `platform_fee_basis_points`, `effective_from`. Versions are immutable. The active version is the latest with `effective_from <= now`. UNIQUE(`plan_id`, `effective_from`). A landlord sets only the rate and the effective date: VAT and the platform fee are the platform's rates, from config (`meterpay.tariff`), and are copied onto each new version so that changing them never reprices an existing one. An effective date in the past is refused, because a backdated version would claim a price applied when tenants were charged something else.
 
 **ledger_accounts**: `owner_type` (TENANT, LANDLORD, PLATFORM), `owner_id NULL`, `type` (see 6.3), `currency` ('NGN'), `balance_kobo`, `version`. UNIQUE(`owner_type`, `owner_id`, `type`).
 
@@ -384,6 +384,7 @@ All endpoints under `/api/v1`. JSON. Pagination via `page` (default 0) and `size
 
 - `POST /meters` body: `serialNumber`, `gatewayType`, `externalDeviceId` (required for TUYA), optional `lowCreditThresholdWh`.
 - `PUT /meters/{id}/unit` body: `unitId`. Repeating it for the same unit is a no-op. 409 if the unit already has a meter or the meter is on another unit.
+- `POST /buildings/{id}/tariffs` body: `rateKoboPerKwh`, optional `effectiveFrom` (default now), optional `planName` (used only by the building's first version, default `Standard`). `GET` returns versions newest first, each with an `active` flag. 409 if a version already starts at that moment.
 - `GET /meters/{id}`: a former tenant, another tenant and another landlord all get 404.
 
 **Wallet and payments**
@@ -538,6 +539,8 @@ Not decided yet. Each one needs a decision before the point named in the last co
 | Should `register` and `refresh` get their own rate limit? 11 only covers login, money endpoints and a global limit. | Guessing invite codes and mass registration are limited only by the global 300/min per IP. | M8-01 |
 | Should suspending a meter open the relay, and resuming close it? 7.2 names relay commands only for CUTOFF, so today a suspension blocks purchases (M5-03) but leaves the power on. | A landlord may expect suspend to cut the supply, while cutting it could be used to pressure a tenant who has paid. | M5-05 |
 | Do readings keep deducting credit while a meter is suspended, and can `resume` land on a state the credit no longer fits? | A meter suspended as ACTIVE can reach zero credit while suspended, and only resume or decommissioning can take a meter out of SUSPENDED. | M6-04 |
+| How does a change to VAT or the platform fee reach existing buildings? New rates apply only to new versions, so a building keeps the old rate until its landlord sets a new price. | A statutory VAT change must apply to every building on its start date, not when each landlord next changes their price. | Before launch |
+| Can a future-dated tariff version be withdrawn? Versions are immutable, so today a mistake can only be overridden by a version starting after it. | A landlord who schedules a wrong price cannot stop it taking effect, only limit how long it lasts. | Landlord dashboard |
 | Which task implements CORS? 11 requires it, but the plan has no task for it. | Browser frontends cannot call the API without it. | Landlord web app |
 
 ## 17. Recorded decisions

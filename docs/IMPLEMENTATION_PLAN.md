@@ -67,7 +67,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(meter): add meter state machine with guarded transitions`
 - [x] **M2-03 Suspend and resume.** Endpoints, restore previous state.
   - Commit: `feat(meter): allow landlords to suspend and resume meters`
-- [ ] **M2-04 Tariff plans and versions.** Immutable versions with `effective_from`, active version lookup.
+- [x] **M2-04 Tariff plans and versions.** Immutable versions with `effective_from`, active version lookup.
   - Done when: tests cover future-dated version not yet active.
   - Commit: `feat(tariff): add versioned tariff plans per building`
 - [ ] **M2-05 Pricing calculator.** Pure function: gross kobo + tariff version -> vat, fee, net, Wh. Implements DESIGN §6.4 rounding. Table-driven tests including the worked example.

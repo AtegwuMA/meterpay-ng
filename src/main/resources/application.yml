@@ -37,6 +37,10 @@ meterpay:
   identity:
     # DESIGN 11: refresh tokens live 30 days and are rotated on every use.
     refresh-token-ttl: 30d
+  tariff:
+    # Copied onto each new tariff version, so changing these never reprices an existing one (DESIGN 6.2).
+    vat-basis-points: ${TARIFF_VAT_BASIS_POINTS:750}
+    platform-fee-basis-points: ${TARIFF_PLATFORM_FEE_BASIS_POINTS:200}
 
 logging:
   pattern:
