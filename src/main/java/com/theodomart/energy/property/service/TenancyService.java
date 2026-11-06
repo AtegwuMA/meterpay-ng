@@ -1,5 +1,6 @@
 package com.theodomart.energy.property.service;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface TenancyService {
@@ -25,5 +26,8 @@ public interface TenancyService {
 
 	/** Whether the user is the current tenant of the unit. A former tenant is not. */
 	boolean isActiveTenant(UUID userId, UUID unitId);
+
+	/** Newest first. Empty if the user is not currently a tenant anywhere. */
+	List<ActiveTenancy> findActiveTenancies(UUID tenantId);
 
 }

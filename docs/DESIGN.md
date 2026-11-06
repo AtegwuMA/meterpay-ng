@@ -358,7 +358,7 @@ All endpoints under `/api/v1`. JSON. Pagination via `page` (default 0) and `size
 - `login` and `refresh` return `accessToken`, `tokenType` (`Bearer`), `expiresIn`, `refreshToken`, `refreshTokenExpiresIn` (seconds).
 - `refresh` and `logout` bodies: `refreshToken`. `logout` revokes that session's token family and always returns 204, so it cannot probe which tokens exist. The access token stays valid until it expires.
 - `/me/password` body: `currentPassword`, `newPassword`. Revokes every refresh token family, so a stolen session does not survive, then returns a fresh token pair so the caller stays signed in. A wrong current password is 422, not 401: clients treat 401 as an expired session.
-- `/me/tenancies` returns active tenancies with building, unit label and optional meter id, serial, status and credit. Credit reads 0 until purchases exist (M5-02).
+- `/me/tenancies` returns active tenancies, newest first, as a plain array: `tenancyId`, `buildingId`, `buildingName`, `unitId`, `unitLabel`, `startsOn` and `meter` (`id`, `serialNumber`, `status`, `creditBalanceWh`, or null if the unit has no meter). Not paged, because a tenant has only a few. Credit reads 0 until purchases exist (M5-02).
 - `/tenancies/redeem` body: `inviteCode`.
 
 **Property**

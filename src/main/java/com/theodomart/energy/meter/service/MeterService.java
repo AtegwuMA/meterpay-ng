@@ -1,6 +1,7 @@
 package com.theodomart.energy.meter.service;
 
 import com.theodomart.energy.security.service.CurrentUser;
+import java.util.List;
 import java.util.UUID;
 
 public interface MeterService {
@@ -33,5 +34,8 @@ public interface MeterService {
 	 * @throws com.theodomart.energy.common.error.IllegalStateTransitionException if it is not suspended
 	 */
 	MeterView resume(UUID landlordId, UUID meterId);
+
+	/** The tenant's current tenancies, newest first, each with the unit's meter if it has one. */
+	List<TenantTenancyView> listTenancies(UUID tenantId);
 
 }

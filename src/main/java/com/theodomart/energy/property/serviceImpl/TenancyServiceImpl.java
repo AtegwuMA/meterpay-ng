@@ -9,6 +9,7 @@ import com.theodomart.energy.property.domain.TenancyStatus;
 import com.theodomart.energy.property.domain.TenantInvite;
 import com.theodomart.energy.property.repository.TenancyRepository;
 import com.theodomart.energy.property.repository.TenantInviteRepository;
+import com.theodomart.energy.property.service.ActiveTenancy;
 import com.theodomart.energy.property.service.InvalidInviteCodeException;
 import com.theodomart.energy.property.service.InviteView;
 import com.theodomart.energy.property.service.TenancyService;
@@ -20,6 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -121,6 +123,12 @@ public class TenancyServiceImpl implements TenancyService {
 	@Transactional(readOnly = true)
 	public boolean isActiveTenant(UUID userId, UUID unitId) {
 		return tenancies.existsByUnitIdAndTenantIdAndStatus(unitId, userId, TenancyStatus.ACTIVE);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<ActiveTenancy> findActiveTenancies(UUID tenantId) {
+		return tenancies.findWithNamesByTenantId(tenantId, TenancyStatus.ACTIVE);
 	}
 
 	private static LocalDate today(Instant now) {

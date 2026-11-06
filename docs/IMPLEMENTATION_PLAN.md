@@ -76,7 +76,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(tariff): calculate vat, platform fee and energy from amount`
 - [x] **M2-06 ADR-0005.** Rounding and VAT decision.
   - Commit: `docs(adr): record tariff and rounding rules`
-- [ ] **M2-07 Tenant's tenancies.** `GET /me/tenancies` in the `meter` module (DESIGN §17.4): active tenancies with building, unit label and optional meter id, serial, status and credit. Fetch meters in one batch query, no N+1. Credit reads 0 until M5-02: nothing can change it before then, and that is not a bug.
+- [x] **M2-07 Tenant's tenancies.** `GET /me/tenancies` in the `meter` module (DESIGN §17.4): active tenancies with building, unit label and optional meter id, serial, status and credit. Fetch meters in one batch query, no N+1. Credit reads 0 until M5-02: nothing can change it before then, and that is not a bug.
   - Commit: `feat(meter): let tenants see their tenancies and meters`
 
 ## M3: Ledger (weeks 4 to 5)

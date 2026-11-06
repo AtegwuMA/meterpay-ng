@@ -11,11 +11,18 @@ import com.theodomart.energy.meter.repository.MeterRepository;
 import com.theodomart.energy.meter.service.MeterService;
 import com.theodomart.energy.meter.service.MeterView;
 import com.theodomart.energy.meter.service.RegisterMeterCommand;
+import com.theodomart.energy.meter.service.TenantTenancyView;
+import com.theodomart.energy.meter.service.TenantTenancyView.TenantMeterView;
+import com.theodomart.energy.property.service.ActiveTenancy;
 import com.theodomart.energy.property.service.TenancyService;
 import com.theodomart.energy.security.service.CurrentUser;
 import com.theodomart.energy.security.service.OwnershipService;
 import java.time.Clock;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -126,6 +133,20 @@ public class MeterServiceImpl implements MeterService {
 		return toView(meter);
 	}
 
+	@Override
+	@Transactional(readOnly = true)
+	public List<TenantTenancyView> listTenancies(UUID tenantId) {
+		List<ActiveTenancy> active = tenancies.findActiveTenancies(tenantId);
+		if (active.isEmpty()) {
+			return List.of();
+		}
+		// One query for all the units, not one per tenancy. toMap cannot collide: unit_id is UNIQUE on meters.
+		Map<UUID, Meter> meterByUnit = meters.findByUnitIdIn(active.stream().map(ActiveTenancy::unitId).toList())
+			.stream()
+			.collect(Collectors.toMap(Meter::getUnitId, Function.identity()));
+		return active.stream().map(tenancy -> toTenantView(tenancy, meterByUnit.get(tenancy.unitId()))).toList();
+	}
+
 	private Meter ownedMeter(UUID landlordId, UUID meterId) {
 		return meters.findById(meterId)
 			.filter(found -> found.getLandlordId().equals(landlordId))
@@ -142,6 +163,13 @@ public class MeterServiceImpl implements MeterService {
 
 	private static ResourceNotFoundException notFound(UUID meterId) {
 		return new ResourceNotFoundException("Meter " + meterId + " was not found.");
+	}
+
+	private static TenantTenancyView toTenantView(ActiveTenancy t, Meter m) {
+		TenantMeterView meter = m == null ? null
+				: new TenantMeterView(m.getId(), m.getSerialNumber(), m.getStatus().name(), m.getCreditBalanceWh());
+		return new TenantTenancyView(t.tenancyId(), t.buildingId(), t.buildingName(), t.unitId(), t.unitLabel(),
+				t.startsOn(), meter);
 	}
 
 	private static MeterView toView(Meter m) {
