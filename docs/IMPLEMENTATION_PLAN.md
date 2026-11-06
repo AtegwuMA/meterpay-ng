@@ -70,7 +70,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
 - [x] **M2-04 Tariff plans and versions.** Immutable versions with `effective_from`, active version lookup.
   - Done when: tests cover future-dated version not yet active.
   - Commit: `feat(tariff): add versioned tariff plans per building`
-- [ ] **M2-05 Pricing calculator.** Pure function: gross kobo + tariff version -> vat, fee, net, Wh. Implements DESIGN §6.4 rounding. Table-driven tests including the worked example.
+- [x] **M2-05 Pricing calculator.** Pure function: gross kobo + tariff version -> vat, fee, net, Wh. Implements DESIGN §6.4 rounding. Table-driven tests including the worked example.
   - Commit: `feat(tariff): calculate vat, platform fee and energy from amount`
 - [ ] **M2-06 ADR-0005.** Rounding and VAT decision.
   - Commit: `docs(adr): record tariff and rounding rules`

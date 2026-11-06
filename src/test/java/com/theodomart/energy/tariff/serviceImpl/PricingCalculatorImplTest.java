@@ -1,0 +1,136 @@
+package com.theodomart.energy.tariff.serviceImpl;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.theodomart.energy.common.domain.Energy;
+import com.theodomart.energy.common.domain.Money;
+import com.theodomart.energy.tariff.service.PriceBreakdown;
+import com.theodomart.energy.tariff.service.TariffVersionView;
+import java.time.Instant;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+class PricingCalculatorImplTest {
+
+	private static final Instant START = Instant.parse("2026-11-06T09:00:00Z");
+
+	private final PricingCalculatorImpl calculator = new PricingCalculatorImpl();
+
+	@Test
+	void matchesTheWorkedExampleInTheDesign() {
+		PriceBreakdown price = calculator.price(Money.ofKobo(200_000), version(22_500, 750, 200));
+
+		assertThat(price.gross()).isEqualTo(Money.ofKobo(200_000));
+		assertThat(price.vat()).isEqualTo(Money.ofKobo(13_953));
+		assertThat(price.fee()).isEqualTo(Money.ofKobo(3_720));
+		assertThat(price.net()).isEqualTo(Money.ofKobo(182_327));
+		assertThat(price.energy()).isEqualTo(Energy.ofWh(8_103));
+	}
+
+	// The expected values were worked out by hand from DESIGN 6.4, not by running the code.
+	@ParameterizedTest(name = "{0}: {1} kobo")
+	@CsvSource(delimiter = '|', textBlock = """
+			# case                                 | gross     | rate  | vatBp | feeBp | vat     | fee     | net      | wh
+			every division rounds down             | 1000      | 22500 | 750   | 200   | 69      | 18      | 913      | 40
+			every division is exact                | 10750     | 1000  | 750   | 200   | 750     | 200     | 9800     | 9800
+			one million naira                      | 100000000 | 22500 | 750   | 200   | 6976744 | 1860465 | 91162791 | 4051679
+			no VAT and no fee                      | 100000    | 22500 | 0     | 0     | 0       | 0       | 100000   | 4444
+			VAT only                               | 10750     | 1000  | 750   | 0     | 750     | 0       | 10000    | 10000
+			fee only                               | 10000     | 1000  | 0     | 200   | 0       | 200     | 9800     | 9800
+			highest VAT takes half                 | 200000    | 1000  | 10000 | 0     | 100000  | 0       | 100000   | 100000
+			highest fee leaves one kobo            | 10000     | 1000  | 0     | 9999  | 0       | 9999    | 1        | 1
+			last amount with no VAT                | 14        | 22500 | 750   | 200   | 0       | 0       | 14       | 0
+			first amount with VAT                  | 15        | 22500 | 750   | 200   | 1       | 0       | 14       | 0
+			last amount with no fee                | 52        | 22500 | 750   | 200   | 3       | 0       | 49       | 2
+			first amount with a fee                | 53        | 22500 | 750   | 200   | 3       | 1       | 49       | 2
+			largest amount that buys no energy     | 23        | 22500 | 750   | 200   | 1       | 0       | 22       | 0
+			smallest amount that buys energy       | 24        | 22500 | 750   | 200   | 1       | 0       | 23       | 1
+			one kobo buys nothing above 1000 rate  | 1        | 1001  | 0     | 0     | 0       | 0       | 1        | 0
+			one kobo buys one Wh at 1000 rate      | 1         | 1000  | 0     | 0     | 0       | 0       | 1        | 1
+			lowest rate gives 1000 Wh per kobo     | 1         | 1     | 0     | 0     | 0       | 0       | 1        | 1000
+			energy rounds down, not to nearest     | 2         | 3     | 0     | 0     | 0       | 0       | 2        | 666
+			""")
+	void splitsTheAmountByTheDesignRounding(String description, long gross, long rate, int vatBp, int feeBp, long vat,
+			long fee, long net, long wh) {
+		PriceBreakdown price = calculator.price(Money.ofKobo(gross), version(rate, vatBp, feeBp));
+
+		assertThat(price.vat().kobo()).as("vat").isEqualTo(vat);
+		assertThat(price.fee().kobo()).as("fee").isEqualTo(fee);
+		assertThat(price.net().kobo()).as("net").isEqualTo(net);
+		assertThat(price.energy().wh()).as("energy").isEqualTo(wh);
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "22500, 750, 200", "1, 0, 0", "7, 10000, 9999", "99999, 1, 1", "1000, 750, 9999" })
+	void partsAlwaysAddUpAndEveryDivisionRoundsDown(long rate, int vatBp, int feeBp) {
+		TariffVersionView version = version(rate, vatBp, feeBp);
+
+		for (long gross = 1; gross <= 20_000; gross++) {
+			PriceBreakdown price = calculator.price(Money.ofKobo(gross), version);
+			long vat = price.vat().kobo();
+			long afterVat = gross - vat;
+			long fee = price.fee().kobo();
+			long net = price.net().kobo();
+			long wh = price.energy().wh();
+
+			// A kobo that goes missing here would leave the ledger entry for this purchase unbalanced.
+			assertThat(vat + fee + net).as("parts of %d", gross).isEqualTo(gross);
+			assertThat(net).as("a positive amount always leaves the landlord something").isPositive();
+
+			// Each one is the largest whole number that does not overcharge or over-deliver, which is what floor means.
+			assertThat(vat * (10_000 + vatBp)).as("vat of %d", gross).isLessThanOrEqualTo(gross * vatBp);
+			assertThat((vat + 1) * (10_000 + vatBp)).as("vat of %d", gross).isGreaterThan(gross * vatBp);
+			assertThat(fee * 10_000).as("fee of %d", gross).isLessThanOrEqualTo(afterVat * feeBp);
+			assertThat((fee + 1) * 10_000).as("fee of %d", gross).isGreaterThan(afterVat * feeBp);
+			assertThat(wh * rate).as("energy of %d", gross).isLessThanOrEqualTo(net * 1_000);
+			assertThat((wh + 1) * rate).as("energy of %d", gross).isGreaterThan(net * 1_000);
+		}
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "22500, 750, 200", "1000, 750, 9999", "7, 10000, 0" })
+	void payingMoreNeverDeliversLessEnergy(long rate, int vatBp, int feeBp) {
+		TariffVersionView version = version(rate, vatBp, feeBp);
+		long previous = 0;
+
+		for (long gross = 1; gross <= 20_000; gross++) {
+			long wh = calculator.price(Money.ofKobo(gross), version).energy().wh();
+
+			assertThat(wh).as("energy for %d kobo", gross).isGreaterThanOrEqualTo(previous);
+			previous = wh;
+		}
+	}
+
+	@Test
+	void theSameInputAlwaysGivesTheSamePrice() {
+		TariffVersionView version = version(22_500, 750, 200);
+
+		assertThat(calculator.price(Money.ofKobo(200_000), version))
+			.isEqualTo(calculator.price(Money.ofKobo(200_000), version));
+	}
+
+	@Test
+	void aPurchaseOfZeroIsRefused() {
+		assertThatThrownBy(() -> calculator.price(Money.ZERO, version(22_500, 750, 200)))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("zero");
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "750, 200", "0, 200", "0, 0" })
+	void anAmountTooLargeToCalculateFailsInsteadOfWrappingAround(int vatBp, int feeBp) {
+		TariffVersionView version = version(22_500, vatBp, feeBp);
+
+		assertThatThrownBy(() -> calculator.price(Money.ofKobo(Long.MAX_VALUE), version))
+			.isInstanceOf(ArithmeticException.class);
+	}
+
+	private static TariffVersionView version(long rate, int vatBasisPoints, int feeBasisPoints) {
+		return new TariffVersionView(UUID.randomUUID(), UUID.randomUUID(), "Standard", rate, vatBasisPoints,
+				feeBasisPoints, START, true, START);
+	}
+
+}

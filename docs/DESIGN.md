@@ -541,6 +541,7 @@ Not decided yet. Each one needs a decision before the point named in the last co
 | Do readings keep deducting credit while a meter is suspended, and can `resume` land on a state the credit no longer fits? | A meter suspended as ACTIVE can reach zero credit while suspended, and only resume or decommissioning can take a meter out of SUSPENDED. | M6-04 |
 | How does a change to VAT or the platform fee reach existing buildings? New rates apply only to new versions, so a building keeps the old rate until its landlord sets a new price. | A statutory VAT change must apply to every building on its start date, not when each landlord next changes their price. | Before launch |
 | Can a future-dated tariff version be withdrawn? Versions are immutable, so today a mistake can only be overridden by a version starting after it. | A landlord who schedules a wrong price cannot stop it taking effect, only limit how long it lasts. | Landlord dashboard |
+| What is the smallest purchase? Rounding down means a very small amount buys 0 Wh: at the worked example's rates, 23 kobo or less buys nothing. | Without a minimum, M5-03 would take the tenant's money and deliver no energy. VAT or the fee can also round to 0, and `postings.amount_kobo > 0` means those lines must be left out of the journal entry, not posted as zero. | M5-03 |
 | Which task implements CORS? 11 requires it, but the plan has no task for it. | Browser frontends cannot call the API without it. | Landlord web app |
 
 ## 17. Recorded decisions

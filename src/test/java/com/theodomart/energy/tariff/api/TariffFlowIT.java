@@ -13,8 +13,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.theodomart.energy.IntegrationTest;
+import com.theodomart.energy.common.domain.Energy;
+import com.theodomart.energy.common.domain.Money;
 import com.theodomart.energy.tariff.repository.TariffPlanRepository;
 import com.theodomart.energy.tariff.repository.TariffVersionRepository;
+import com.theodomart.energy.tariff.service.PriceBreakdown;
+import com.theodomart.energy.tariff.service.PricingCalculator;
 import com.theodomart.energy.tariff.service.TariffService;
 import com.theodomart.energy.tariff.service.TariffVersionView;
 import java.time.Instant;
@@ -52,6 +56,8 @@ class TariffFlowIT extends IntegrationTest {
 
 	private final TariffService tariffs;
 
+	private final PricingCalculator pricing;
+
 	private final TariffPlanRepository plans;
 
 	private final TariffVersionRepository versions;
@@ -61,11 +67,12 @@ class TariffFlowIT extends IntegrationTest {
 	private String building;
 
 	@Autowired
-	TariffFlowIT(MockMvc mvc, JdbcTemplate jdbc, TariffService tariffs, TariffPlanRepository plans,
-			TariffVersionRepository versions) {
+	TariffFlowIT(MockMvc mvc, JdbcTemplate jdbc, TariffService tariffs, PricingCalculator pricing,
+			TariffPlanRepository plans, TariffVersionRepository versions) {
 		this.mvc = mvc;
 		this.jdbc = jdbc;
 		this.tariffs = tariffs;
+		this.pricing = pricing;
 		this.plans = plans;
 		this.versions = versions;
 	}
@@ -97,6 +104,18 @@ class TariffFlowIT extends IntegrationTest {
 				""")).andExpect(status().isCreated())
 			.andExpect(jsonPath("$.vatBasisPoints").value(750))
 			.andExpect(jsonPath("$.platformFeeBasisPoints").value(200));
+	}
+
+	@Test
+	void theActiveVersionPricesThePurchaseInTheDesignExample() throws Exception {
+		addVersion(landlord, building, 22_500).andExpect(status().isCreated());
+
+		PriceBreakdown price = pricing.price(Money.ofKobo(200_000), activeVersion().orElseThrow());
+
+		assertThat(price.vat()).isEqualTo(Money.ofKobo(13_953));
+		assertThat(price.fee()).isEqualTo(Money.ofKobo(3_720));
+		assertThat(price.net()).isEqualTo(Money.ofKobo(182_327));
+		assertThat(price.energy()).isEqualTo(Energy.ofWh(8_103));
 	}
 
 	@Test
