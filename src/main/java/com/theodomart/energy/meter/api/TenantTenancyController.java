@@ -25,8 +25,12 @@ public class TenantTenancyController {
 
 	@GetMapping
 	@PreAuthorize("hasRole('TENANT')")
-	public List<TenantTenancyView> list(@AuthenticationPrincipal CurrentUser user) {
-		return meters.listTenancies(user.id());
+	public TenantTenanciesResponse list(@AuthenticationPrincipal CurrentUser user) {
+		return new TenantTenanciesResponse(meters.listTenancies(user.id()));
+	}
+
+	/** An object, not a bare array, so fields such as paging can be added later without breaking clients. */
+	record TenantTenanciesResponse(List<TenantTenancyView> tenancies) {
 	}
 
 }

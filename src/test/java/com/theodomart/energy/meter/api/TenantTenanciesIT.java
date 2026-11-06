@@ -73,26 +73,26 @@ class TenantTenanciesIT extends IntegrationTest {
 
 		mvc.perform(authorised(get(TENANCIES), tenant))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.length()").value(1))
-			.andExpect(jsonPath("$[0].tenancyId").isNotEmpty())
-			.andExpect(jsonPath("$[0].buildingId").value(building))
-			.andExpect(jsonPath("$[0].buildingName").value("Sunrise Court"))
-			.andExpect(jsonPath("$[0].unitId").value(unit))
-			.andExpect(jsonPath("$[0].unitLabel").value("Flat 1"))
-			.andExpect(jsonPath("$[0].startsOn").isNotEmpty())
-			.andExpect(jsonPath("$[0].meter.id").value(meter))
-			.andExpect(jsonPath("$[0].meter.serialNumber").value(serial))
-			.andExpect(jsonPath("$[0].meter.status").value("PROVISIONED"))
-			.andExpect(jsonPath("$[0].meter.creditBalanceWh").value(0));
+			.andExpect(jsonPath("$.tenancies.length()").value(1))
+			.andExpect(jsonPath("$.tenancies[0].tenancyId").isNotEmpty())
+			.andExpect(jsonPath("$.tenancies[0].buildingId").value(building))
+			.andExpect(jsonPath("$.tenancies[0].buildingName").value("Sunrise Court"))
+			.andExpect(jsonPath("$.tenancies[0].unitId").value(unit))
+			.andExpect(jsonPath("$.tenancies[0].unitLabel").value("Flat 1"))
+			.andExpect(jsonPath("$.tenancies[0].startsOn").isNotEmpty())
+			.andExpect(jsonPath("$.tenancies[0].meter.id").value(meter))
+			.andExpect(jsonPath("$.tenancies[0].meter.serialNumber").value(serial))
+			.andExpect(jsonPath("$.tenancies[0].meter.status").value("PROVISIONED"))
+			.andExpect(jsonPath("$.tenancies[0].meter.creditBalanceWh").value(0));
 	}
 
 	@Test
 	void unitWithNoMeterYetStillShowsTheTenancy() throws Exception {
 		mvc.perform(authorised(get(TENANCIES), tenantOf(unit)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.length()").value(1))
-			.andExpect(jsonPath("$[0].unitId").value(unit))
-			.andExpect(jsonPath("$[0].meter").value(nullValue()));
+			.andExpect(jsonPath("$.tenancies.length()").value(1))
+			.andExpect(jsonPath("$.tenancies[0].unitId").value(unit))
+			.andExpect(jsonPath("$.tenancies[0].meter").value(nullValue()));
 	}
 
 	@Test
@@ -103,7 +103,7 @@ class TenantTenanciesIT extends IntegrationTest {
 
 		mvc.perform(authorised(get(TENANCIES), tenant))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$[0].meter.creditBalanceWh").value(-150));
+			.andExpect(jsonPath("$.tenancies[0].meter.creditBalanceWh").value(-150));
 	}
 
 	@Test
@@ -114,7 +114,7 @@ class TenantTenanciesIT extends IntegrationTest {
 
 		mvc.perform(authorised(get(TENANCIES), tenant))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$[0].meter.status").value("SUSPENDED"));
+			.andExpect(jsonPath("$.tenancies[0].meter.status").value("SUSPENDED"));
 	}
 
 	@Test
@@ -125,7 +125,7 @@ class TenantTenanciesIT extends IntegrationTest {
 
 		mvc.perform(authorised(get(TENANCIES), tenant))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.length()").value(0));
+			.andExpect(jsonPath("$.tenancies.length()").value(0));
 	}
 
 	@Test
@@ -137,12 +137,12 @@ class TenantTenanciesIT extends IntegrationTest {
 
 		mvc.perform(authorised(get(TENANCIES), tenant))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.length()").value(1))
-			.andExpect(jsonPath("$[0].unitId").value(unit))
-			.andExpect(jsonPath("$[0].meter").value(nullValue()));
+			.andExpect(jsonPath("$.tenancies.length()").value(1))
+			.andExpect(jsonPath("$.tenancies[0].unitId").value(unit))
+			.andExpect(jsonPath("$.tenancies[0].meter").value(nullValue()));
 		mvc.perform(authorised(get(TENANCIES), neighbour))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$[0].meter.id").value(neighboursMeter));
+			.andExpect(jsonPath("$.tenancies[0].meter.id").value(neighboursMeter));
 	}
 
 	@Test
@@ -159,14 +159,14 @@ class TenantTenanciesIT extends IntegrationTest {
 
 		mvc.perform(authorised(get(TENANCIES), tenant))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.length()").value(3))
-			.andExpect(jsonPath("$[0].unitId").value(third))
-			.andExpect(jsonPath("$[0].meter.id").value(thirdMeter))
-			.andExpect(jsonPath("$[1].unitId").value(second))
-			.andExpect(jsonPath("$[1].buildingName").value("Palm Grove"))
-			.andExpect(jsonPath("$[1].meter").value(nullValue()))
-			.andExpect(jsonPath("$[2].unitId").value(unit))
-			.andExpect(jsonPath("$[2].meter.id").value(firstMeter));
+			.andExpect(jsonPath("$.tenancies.length()").value(3))
+			.andExpect(jsonPath("$.tenancies[0].unitId").value(third))
+			.andExpect(jsonPath("$.tenancies[0].meter.id").value(thirdMeter))
+			.andExpect(jsonPath("$.tenancies[1].unitId").value(second))
+			.andExpect(jsonPath("$.tenancies[1].buildingName").value("Palm Grove"))
+			.andExpect(jsonPath("$.tenancies[1].meter").value(nullValue()))
+			.andExpect(jsonPath("$.tenancies[2].unitId").value(unit))
+			.andExpect(jsonPath("$.tenancies[2].meter.id").value(firstMeter));
 	}
 
 	@Test
