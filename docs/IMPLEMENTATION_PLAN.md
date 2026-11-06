@@ -74,7 +74,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `refactor(tariff): move vat from tariff versions to platform tax rates`
 - [x] **M2-05 Pricing calculator.** Pure function: gross kobo + tariff version -> vat, fee, net, Wh. Implements DESIGN §6.4 rounding. Table-driven tests including the worked example.
   - Commit: `feat(tariff): calculate vat, platform fee and energy from amount`
-- [ ] **M2-06 ADR-0005.** Rounding and VAT decision.
+- [x] **M2-06 ADR-0005.** Rounding and VAT decision.
   - Commit: `docs(adr): record tariff and rounding rules`
 - [ ] **M2-07 Tenant's tenancies.** `GET /me/tenancies` in the `meter` module (DESIGN §17.4): active tenancies with building, unit label and optional meter id, serial, status and credit. Fetch meters in one batch query, no N+1. Credit reads 0 until M5-02: nothing can change it before then, and that is not a bug.
   - Commit: `feat(meter): let tenants see their tenancies and meters`

@@ -231,7 +231,7 @@ A landlord can withdraw a version only before it starts (not built yet, M7-04a).
 | PLATFORM_FEE_REVENUE | | 3720 |
 | LANDLORD_REVENUE | | 182327 |
 
-Energy delivered = floor(net_kobo × 1000 / rate_kobo_per_kwh) Wh. At ₦225/kWh (22500 kobo): floor(182327 × 1000 / 22500) = 8103 Wh. (Whether VAT and fees reduce energy or are charged on top is a product decision recorded in ADR-0005.)
+Energy delivered = floor(net_kobo × 1000 / rate_kobo_per_kwh) Wh. At ₦225/kWh (22500 kobo): floor(182327 × 1000 / 22500) = 8103 Wh. VAT and fees come out of the amount paid, so they reduce the energy instead of being charged on top (ADR-0005).
 
 ## 7. State machines
 
