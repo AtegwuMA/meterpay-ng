@@ -124,6 +124,14 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
+	void transitionRefusedWithItsOwnDetailReturns409() throws Exception {
+		mvc.perform(post("/test/resume"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("ILLEGAL_STATE_TRANSITION"))
+			.andExpect(jsonPath("$.detail").value("Only a suspended meter can be resumed."));
+	}
+
+	@Test
 	void optimisticLockFailureReturns409ConcurrentModification() throws Exception {
 		mvc.perform(post("/test/concurrent"))
 			.andExpect(status().isConflict())
@@ -208,6 +216,11 @@ class GlobalExceptionHandlerTest {
 		@PostMapping("/test/transition")
 		String transition() {
 			throw new IllegalStateTransitionException("meter", TestState.DECOMMISSIONED, TestState.ACTIVE);
+		}
+
+		@PostMapping("/test/resume")
+		String resume() {
+			throw new IllegalStateTransitionException("Only a suspended meter can be resumed.");
 		}
 
 		@PostMapping("/test/concurrent")

@@ -57,6 +57,18 @@ public class MeterController {
 		return meters.get(user, meterId);
 	}
 
+	@PostMapping("/{meterId}/suspend")
+	@PreAuthorize("hasRole('LANDLORD')")
+	public MeterView suspend(@AuthenticationPrincipal CurrentUser user, @PathVariable UUID meterId) {
+		return meters.suspend(user.id(), meterId);
+	}
+
+	@PostMapping("/{meterId}/resume")
+	@PreAuthorize("hasRole('LANDLORD')")
+	public MeterView resume(@AuthenticationPrincipal CurrentUser user, @PathVariable UUID meterId) {
+		return meters.resume(user.id(), meterId);
+	}
+
 	record RegisterMeterRequest(@NotBlank @Size(max = 40) String serialNumber,
 			@NotNull @Pattern(regexp = "SIMULATED|TUYA", message = "must be SIMULATED or TUYA") String gatewayType,
 			@Size(max = 100) String externalDeviceId, @PositiveOrZero Long lowCreditThresholdWh) {

@@ -19,4 +19,19 @@ public interface MeterService {
 	/** Readable by the owning landlord and the unit's current tenant. Anyone else gets a 404. */
 	MeterView get(CurrentUser user, UUID meterId);
 
+	/**
+	 * Someone else's meter is a 404.
+	 *
+	 * @throws com.theodomart.energy.common.error.IllegalStateTransitionException if it is already suspended or is
+	 * decommissioned
+	 */
+	MeterView suspend(UUID landlordId, UUID meterId);
+
+	/**
+	 * Returns the meter to the state it was suspended from. Someone else's meter is a 404.
+	 *
+	 * @throws com.theodomart.energy.common.error.IllegalStateTransitionException if it is not suspended
+	 */
+	MeterView resume(UUID landlordId, UUID meterId);
+
 }

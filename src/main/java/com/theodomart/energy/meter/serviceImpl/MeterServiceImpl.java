@@ -75,9 +75,7 @@ public class MeterServiceImpl implements MeterService {
 	@Override
 	@Transactional
 	public MeterView assignToUnit(UUID landlordId, UUID meterId, UUID unitId) {
-		Meter meter = meters.findById(meterId)
-			.filter(found -> found.getLandlordId().equals(landlordId))
-			.orElseThrow(() -> notFound(meterId));
+		Meter meter = ownedMeter(landlordId, meterId);
 		ownership.requireUnitOwner(landlordId, unitId);
 		try {
 			meter.assignToUnit(unitId, clock.instant());
@@ -103,6 +101,34 @@ public class MeterServiceImpl implements MeterService {
 		return meters.findById(meterId)
 			.filter(meter -> canRead(user, meter))
 			.map(MeterServiceImpl::toView)
+			.orElseThrow(() -> notFound(meterId));
+	}
+
+	@Override
+	@Transactional
+	public MeterView suspend(UUID landlordId, UUID meterId) {
+		Meter meter = ownedMeter(landlordId, meterId);
+		meter.suspend(clock.instant());
+		// Flushed so a request that loses the version check fails here, before logging a change that rolled back.
+		meters.flush();
+		log.info("Meter suspended: meterId={} landlordId={} from={}", meterId, landlordId,
+				meter.getStatusBeforeSuspension());
+		return toView(meter);
+	}
+
+	@Override
+	@Transactional
+	public MeterView resume(UUID landlordId, UUID meterId) {
+		Meter meter = ownedMeter(landlordId, meterId);
+		meter.resume(clock.instant());
+		meters.flush();
+		log.info("Meter resumed: meterId={} landlordId={} to={}", meterId, landlordId, meter.getStatus());
+		return toView(meter);
+	}
+
+	private Meter ownedMeter(UUID landlordId, UUID meterId) {
+		return meters.findById(meterId)
+			.filter(found -> found.getLandlordId().equals(landlordId))
 			.orElseThrow(() -> notFound(meterId));
 	}
 

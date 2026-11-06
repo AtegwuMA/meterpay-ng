@@ -7,4 +7,9 @@ public class IllegalStateTransitionException extends DomainException {
 		super(ErrorCode.ILLEGAL_STATE_TRANSITION, "Cannot move " + subject + " from " + from + " to " + to + ".");
 	}
 
+	/** For a refusal with no single target state to name, such as resuming a meter that is not suspended. */
+	public IllegalStateTransitionException(String detail) {
+		super(ErrorCode.ILLEGAL_STATE_TRANSITION, detail);
+	}
+
 }

@@ -170,7 +170,7 @@ All tables: `id UUID PK`, `created_at TIMESTAMPTZ`, snake_case columns. Mutable 
 
 **tenancies**: `unit_id`, `tenant_id`, `starts_on`, `ends_on NULL`, `status` (ACTIVE, ENDED). Partial unique index: one ACTIVE tenancy per unit. CHECKs: `ends_on` is set exactly when ENDED, and is not before `starts_on`. Ended rows stay as history.
 
-**meters**: `landlord_id`, `unit_id UNIQUE NULL`, `serial_number UNIQUE`, `gateway_type` (SIMULATED, TUYA), `external_device_id`, `status`, `last_register_wh`, `last_reading_at`, `credit_balance_wh`, `low_credit_threshold_wh`. `landlord_id` gives a meter an owner before it is assigned to a unit. Serials are stored upper case (CHECK) and are unique across all landlords, since a serial is one physical device. CHECK: a TUYA meter needs `external_device_id`. `credit_balance_wh` has no sign check, because credit can overshoot below zero before cutoff (7.2). `low_credit_threshold_wh` defaults to 5000 when registering. One row is one installation, so an assigned meter cannot be moved to another unit (see 17). From M7-07: `assigned_at`, `decommissioned_at`, and `serial_number` and (`gateway_type`, `external_device_id`) become unique only among meters that are not decommissioned, so a refurbished device can be registered again as a new row.
+**meters**: `landlord_id`, `unit_id UNIQUE NULL`, `serial_number UNIQUE`, `gateway_type` (SIMULATED, TUYA), `external_device_id`, `status`, `last_register_wh`, `last_reading_at`, `credit_balance_wh`, `low_credit_threshold_wh`. `landlord_id` gives a meter an owner before it is assigned to a unit. Serials are stored upper case (CHECK) and are unique across all landlords, since a serial is one physical device. CHECK: a TUYA meter needs `external_device_id`. `credit_balance_wh` has no sign check, because credit can overshoot below zero before cutoff (7.2). `low_credit_threshold_wh` defaults to 5000 when registering. `status_before_suspension` holds the state to resume to, and is set exactly when `status` is SUSPENDED (CHECK). One row is one installation, so an assigned meter cannot be moved to another unit (see 17). From M7-07: `assigned_at`, `decommissioned_at`, and `serial_number` and (`gateway_type`, `external_device_id`) become unique only among meters that are not decommissioned, so a refurbished device can be registered again as a new row.
 
 **tariff_plans**: `building_id`, `name`
 **tariff_versions**: `plan_id`, `rate_kobo_per_kwh`, `vat_basis_points` (750 = 7.5%), `platform_fee_basis_points`, `effective_from`. Versions are immutable. The active version is the latest with `effective_from <= now`.
@@ -265,6 +265,8 @@ any --decommission--> DECOMMISSIONED (terminal)
 ```
 
 "Operational" means ACTIVE, LOW_CREDIT and CUTOFF, so a PROVISIONED meter has no tamper or credit moves. No state moves to itself. A purchase on a CUTOFF meter always goes through ACTIVE, even if the new credit is below the threshold. `MeterStatus` is the only place that defines these moves, and `Meter.transitionTo` the only way to make one.
+
+Suspending saves the current state in `status_before_suspension`, and a suspended meter can then move only to that state or to DECOMMISSIONED, so no other flow can reactivate it. Repeating a suspend, or resuming a meter that is not suspended, is a 409. A suspension does not open the relay yet: see 16.
 
 Credit enforcement is two-layered: the purchased Wh is pushed to the meter (edge enforced), and the cloud independently opens the relay at zero (cloud enforced). If the meter keeps reporting consumption while CUTOFF, a TAMPER_CONSUMPTION_WHILE_CUTOFF alert fires.
 
@@ -534,6 +536,8 @@ Not decided yet. Each one needs a decision before the point named in the last co
 | Should concurrent refreshes get a short grace window? | A mobile client that retries on a bad connection is treated as reuse and logged out. | Mobile client testing |
 | Should disabling a user take effect immediately on every endpoint? | Only `/me` and refresh check today, so a disabled user's access token works for up to 15 minutes. | M7-04 |
 | Should `register` and `refresh` get their own rate limit? 11 only covers login, money endpoints and a global limit. | Guessing invite codes and mass registration are limited only by the global 300/min per IP. | M8-01 |
+| Should suspending a meter open the relay, and resuming close it? 7.2 names relay commands only for CUTOFF, so today a suspension blocks purchases (M5-03) but leaves the power on. | A landlord may expect suspend to cut the supply, while cutting it could be used to pressure a tenant who has paid. | M5-05 |
+| Do readings keep deducting credit while a meter is suspended, and can `resume` land on a state the credit no longer fits? | A meter suspended as ACTIVE can reach zero credit while suspended, and only resume or decommissioning can take a meter out of SUSPENDED. | M6-04 |
 | Which task implements CORS? 11 requires it, but the plan has no task for it. | Browser frontends cannot call the API without it. | Landlord web app |
 
 ## 17. Recorded decisions

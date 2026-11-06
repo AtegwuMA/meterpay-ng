@@ -43,6 +43,10 @@ public class Meter {
 	@Column(nullable = false)
 	private MeterStatus status;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "status_before_suspension")
+	private MeterStatus statusBeforeSuspension;
+
 	@Column(name = "last_register_wh", nullable = false)
 	private long lastRegisterWh;
 
@@ -120,16 +124,44 @@ public class Meter {
 	}
 
 	/**
-	 * The only way the status changes.
+	 * The only way the status changes. The saved state is kept here rather than in suspend and resume, so no
+	 * caller can enter or leave SUSPENDED without it staying correct.
 	 *
 	 * @throws IllegalStateTransitionException if {@link MeterStatus} does not allow the move
 	 */
 	public void transitionTo(MeterStatus target, Instant now) {
-		if (!status.canTransitionTo(target)) {
+		if (!status.canTransitionTo(target) || !leavesSuspensionCorrectly(target)) {
 			throw new IllegalStateTransitionException("meter", status, target);
 		}
+		this.statusBeforeSuspension = target == MeterStatus.SUSPENDED ? status : null;
 		this.status = target;
 		this.updatedAt = Objects.requireNonNull(now, "now");
+	}
+
+	/**
+	 * {@link MeterStatus} allows every state a suspended meter could return to, but it cannot know which one this
+	 * meter came from. Without this check a reading could move a suspended meter to ACTIVE behind the landlord's back.
+	 */
+	private boolean leavesSuspensionCorrectly(MeterStatus target) {
+		return status != MeterStatus.SUSPENDED || target == MeterStatus.DECOMMISSIONED
+				|| target == statusBeforeSuspension;
+	}
+
+	/** @throws IllegalStateTransitionException if already suspended or decommissioned */
+	public void suspend(Instant now) {
+		transitionTo(MeterStatus.SUSPENDED, now);
+	}
+
+	/**
+	 * Returns the meter to the state it was suspended from.
+	 *
+	 * @throws IllegalStateTransitionException if the meter is not suspended
+	 */
+	public void resume(Instant now) {
+		if (status != MeterStatus.SUSPENDED) {
+			throw new IllegalStateTransitionException("Only a suspended meter can be resumed. This one is " + status + ".");
+		}
+		transitionTo(statusBeforeSuspension, now);
 	}
 
 	public UUID getId() {
@@ -158,6 +190,10 @@ public class Meter {
 
 	public MeterStatus getStatus() {
 		return status;
+	}
+
+	public MeterStatus getStatusBeforeSuspension() {
+		return statusBeforeSuspension;
 	}
 
 	public long getLastRegisterWh() {

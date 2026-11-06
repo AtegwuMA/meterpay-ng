@@ -1,5 +1,6 @@
 package com.theodomart.energy.meter.api;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.endsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,10 +12,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.theodomart.energy.IntegrationTest;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -184,6 +194,127 @@ class MeterRegistryIT extends IntegrationTest {
 				""", UUID.randomUUID(), landlordId))
 			.isInstanceOf(DataIntegrityViolationException.class)
 			.hasMessageContaining("ck_meters_serial_upper");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "PROVISIONED", "ACTIVE", "LOW_CREDIT", "CUTOFF", "TAMPER_SUSPECTED" })
+	void resumeRestoresThePreviousStateAcrossRequests(String previous) throws Exception {
+		String meter = idOf(registerMeter(landlord, uniqueSerial(), "SIMULATED"));
+		setStatus(meter, previous);
+
+		action(landlord, meter, "suspend").andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("SUSPENDED"));
+		assertThat(jdbc.queryForObject("SELECT status_before_suspension FROM meters WHERE id = ?::uuid", String.class,
+				meter))
+			.isEqualTo(previous);
+
+		action(landlord, meter, "resume").andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value(previous));
+		assertThat(jdbc.queryForObject("SELECT status_before_suspension FROM meters WHERE id = ?::uuid", String.class,
+				meter))
+			.isNull();
+	}
+
+	@Test
+	void suspendingASuspendedMeterAndResumingARunningOneGive409() throws Exception {
+		String meter = idOf(registerMeter(landlord, uniqueSerial(), "SIMULATED"));
+
+		action(landlord, meter, "resume").andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("ILLEGAL_STATE_TRANSITION"))
+			.andExpect(jsonPath("$.detail").value("Only a suspended meter can be resumed. This one is PROVISIONED."));
+
+		action(landlord, meter, "suspend").andExpect(status().isOk());
+		action(landlord, meter, "suspend").andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("ILLEGAL_STATE_TRANSITION"));
+
+		action(landlord, meter, "resume").andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("PROVISIONED"));
+	}
+
+	@Test
+	void decommissionedMeterCannotBeSuspendedOrResumed() throws Exception {
+		String meter = idOf(registerMeter(landlord, uniqueSerial(), "SIMULATED"));
+		setStatus(meter, "DECOMMISSIONED");
+
+		action(landlord, meter, "suspend").andExpect(status().isConflict());
+		action(landlord, meter, "resume").andExpect(status().isConflict());
+	}
+
+	@Test
+	void onlyTheOwningLandlordCanSuspendOrResume() throws Exception {
+		String meter = idOf(registerMeter(landlord, uniqueSerial(), "SIMULATED"));
+		assign(landlord, meter, unitId).andExpect(status().isOk());
+		String occupant = tenantOf(landlord, unitId);
+		String intruder = landlordToken();
+
+		action(intruder, meter, "suspend").andExpect(status().isNotFound());
+		action(occupant, meter, "suspend").andExpect(status().isForbidden());
+		mvc.perform(post("/api/v1/meters/" + meter + "/suspend")).andExpect(status().isUnauthorized());
+
+		action(landlord, meter, "suspend").andExpect(status().isOk());
+
+		action(intruder, meter, "resume").andExpect(status().isNotFound());
+		action(occupant, meter, "resume").andExpect(status().isForbidden());
+		mvc.perform(authorised(get("/api/v1/meters/" + meter), occupant))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("SUSPENDED"));
+	}
+
+	@Test
+	void parallelSuspendsLetExactlyOneWinAndKeepThePreviousState() throws Exception {
+		String meter = idOf(registerMeter(landlord, uniqueSerial(), "SIMULATED"));
+		setStatus(meter, "CUTOFF");
+		int requests = 4;
+		CountDownLatch start = new CountDownLatch(1);
+		List<Future<Integer>> results = new ArrayList<>();
+
+		try (ExecutorService pool = Executors.newFixedThreadPool(requests)) {
+			Callable<Integer> suspend = () -> {
+				start.await();
+				return action(landlord, meter, "suspend").andReturn().getResponse().getStatus();
+			};
+			for (int i = 0; i < requests; i++) {
+				results.add(pool.submit(suspend));
+			}
+			start.countDown();
+		}
+
+		List<Integer> statuses = new ArrayList<>();
+		for (Future<Integer> result : results) {
+			statuses.add(result.get());
+		}
+		assertThat(statuses).containsOnlyOnce(200).containsOnly(200, 409);
+		action(landlord, meter, "resume").andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("CUTOFF"));
+	}
+
+	@Test
+	void databaseRejectsASuspensionMemoryThatDisagreesWithTheStatus() throws Exception {
+		String meter = idOf(registerMeter(landlord, uniqueSerial(), "SIMULATED"));
+
+		assertThatThrownBy(() -> setStatus(meter, "SUSPENDED", null))
+			.isInstanceOf(DataIntegrityViolationException.class)
+			.hasMessageContaining("ck_meters_suspension_memory");
+		assertThatThrownBy(() -> setStatus(meter, "ACTIVE", "CUTOFF"))
+			.isInstanceOf(DataIntegrityViolationException.class)
+			.hasMessageContaining("ck_meters_suspension_memory");
+		assertThatThrownBy(() -> setStatus(meter, "SUSPENDED", "SUSPENDED"))
+			.isInstanceOf(DataIntegrityViolationException.class)
+			.hasMessageContaining("ck_meters_status_before_suspension");
+	}
+
+	// Nothing else moves a meter out of PROVISIONED until M6, so tests set the starting state directly.
+	private void setStatus(String meter, String status) {
+		setStatus(meter, status, null);
+	}
+
+	private void setStatus(String meter, String status, String before) {
+		jdbc.update("UPDATE meters SET status = ?, status_before_suspension = ? WHERE id = ?::uuid", status, before,
+				meter);
+	}
+
+	private ResultActions action(String token, String meter, String name) throws Exception {
+		return mvc.perform(authorised(post("/api/v1/meters/" + meter + "/" + name), token));
 	}
 
 	private ResultActions registerMeter(String token, String serial, String gateway) throws Exception {

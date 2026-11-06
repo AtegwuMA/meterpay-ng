@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -105,11 +106,91 @@ class MeterTest {
 		}
 	}
 
+	@ParameterizedTest
+	@EnumSource(names = { "ACTIVE", "LOW_CREDIT", "CUTOFF", "TAMPER_SUSPECTED" })
+	void resumeRestoresTheStateTheMeterWasSuspendedFrom(MeterStatus previous) {
+		meterIn(previous);
+
+		meter.suspend(NOW.plusSeconds(60));
+
+		assertThat(meter.getStatus()).isEqualTo(MeterStatus.SUSPENDED);
+		assertThat(meter.getStatusBeforeSuspension()).isEqualTo(previous);
+		assertThat(meter.getUpdatedAt()).isEqualTo(NOW.plusSeconds(60));
+
+		meter.resume(NOW.plusSeconds(120));
+
+		assertThat(meter.getStatus()).isEqualTo(previous);
+		assertThat(meter.getStatusBeforeSuspension()).isNull();
+		assertThat(meter.getUpdatedAt()).isEqualTo(NOW.plusSeconds(120));
+	}
+
+	@Test
+	void provisionedMeterResumesToProvisioned() {
+		meter.suspend(NOW);
+		meter.resume(NOW);
+
+		assertThat(meter.getStatus()).isEqualTo(MeterStatus.PROVISIONED);
+	}
+
+	@Test
+	void suspendingTwiceKeepsTheOriginalStateToReturnTo() {
+		meterIn(MeterStatus.CUTOFF);
+		meter.suspend(NOW);
+
+		assertThatThrownBy(() -> meter.suspend(NOW)).isInstanceOf(IllegalStateTransitionException.class);
+
+		assertThat(meter.getStatusBeforeSuspension()).isEqualTo(MeterStatus.CUTOFF);
+	}
+
+	@Test
+	void resumingAMeterThatIsNotSuspendedIsRefused() {
+		assertThatThrownBy(() -> meter.resume(NOW.plusSeconds(60)))
+			.isInstanceOfSatisfying(IllegalStateTransitionException.class, ex -> {
+				assertThat(ex.errorCode()).isEqualTo(ErrorCode.ILLEGAL_STATE_TRANSITION);
+				assertThat(ex).hasMessage("Only a suspended meter can be resumed. This one is PROVISIONED.");
+			});
+
+		assertThat(meter.getUpdatedAt()).isEqualTo(NOW);
+	}
+
+	@Test
+	void suspendedMeterCanOnlyReturnToItsOwnPreviousState() {
+		meterIn(MeterStatus.CUTOFF);
+		meter.suspend(NOW);
+
+		assertThatThrownBy(() -> meter.transitionTo(MeterStatus.ACTIVE, NOW))
+			.isInstanceOf(IllegalStateTransitionException.class)
+			.hasMessage("Cannot move meter from SUSPENDED to ACTIVE.");
+
+		assertThat(meter.getStatus()).isEqualTo(MeterStatus.SUSPENDED);
+		assertThat(meter.getStatusBeforeSuspension()).isEqualTo(MeterStatus.CUTOFF);
+	}
+
+	@Test
+	void suspendedMeterCanBeDecommissionedAndForgetsThePreviousState() {
+		meterIn(MeterStatus.ACTIVE);
+		meter.suspend(NOW);
+
+		meter.transitionTo(MeterStatus.DECOMMISSIONED, NOW);
+
+		assertThat(meter.getStatus()).isEqualTo(MeterStatus.DECOMMISSIONED);
+		assertThat(meter.getStatusBeforeSuspension()).isNull();
+		assertThatThrownBy(() -> meter.suspend(NOW)).isInstanceOf(IllegalStateTransitionException.class);
+		assertThatThrownBy(() -> meter.resume(NOW)).isInstanceOf(IllegalStateTransitionException.class);
+	}
+
 	@Test
 	void assigningDoesNotActivateTheMeter() {
 		meter.assignToUnit(UUID.randomUUID(), NOW);
 
 		assertThat(meter.getStatus()).as("DESIGN 7.2 needs a first reading as well").isEqualTo(MeterStatus.PROVISIONED);
+	}
+
+	private void meterIn(MeterStatus status) {
+		meter.transitionTo(MeterStatus.ACTIVE, NOW);
+		if (status != MeterStatus.ACTIVE) {
+			meter.transitionTo(status, NOW);
+		}
 	}
 
 }
