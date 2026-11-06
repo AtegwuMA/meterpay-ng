@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.theodomart.energy.common.domain.Energy;
 import com.theodomart.energy.common.domain.Money;
+import com.theodomart.energy.tariff.service.ActivePricing;
 import com.theodomart.energy.tariff.service.PriceBreakdown;
 import com.theodomart.energy.tariff.service.TariffVersionView;
 import java.time.Instant;
@@ -21,7 +22,7 @@ class PricingCalculatorImplTest {
 
 	@Test
 	void matchesTheWorkedExampleInTheDesign() {
-		PriceBreakdown price = calculator.price(Money.ofKobo(200_000), version(22_500, 750, 200));
+		PriceBreakdown price = calculator.price(Money.ofKobo(200_000), pricing(22_500, 750, 200));
 
 		assertThat(price.gross()).isEqualTo(Money.ofKobo(200_000));
 		assertThat(price.vat()).isEqualTo(Money.ofKobo(13_953));
@@ -55,7 +56,7 @@ class PricingCalculatorImplTest {
 			""")
 	void splitsTheAmountByTheDesignRounding(String description, long gross, long rate, int vatBp, int feeBp, long vat,
 			long fee, long net, long wh) {
-		PriceBreakdown price = calculator.price(Money.ofKobo(gross), version(rate, vatBp, feeBp));
+		PriceBreakdown price = calculator.price(Money.ofKobo(gross), pricing(rate, vatBp, feeBp));
 
 		assertThat(price.vat().kobo()).as("vat").isEqualTo(vat);
 		assertThat(price.fee().kobo()).as("fee").isEqualTo(fee);
@@ -66,10 +67,10 @@ class PricingCalculatorImplTest {
 	@ParameterizedTest
 	@CsvSource({ "22500, 750, 200", "1, 0, 0", "7, 10000, 9999", "99999, 1, 1", "1000, 750, 9999" })
 	void partsAlwaysAddUpAndEveryDivisionRoundsDown(long rate, int vatBp, int feeBp) {
-		TariffVersionView version = version(rate, vatBp, feeBp);
+		ActivePricing pricing = pricing(rate, vatBp, feeBp);
 
 		for (long gross = 1; gross <= 20_000; gross++) {
-			PriceBreakdown price = calculator.price(Money.ofKobo(gross), version);
+			PriceBreakdown price = calculator.price(Money.ofKobo(gross), pricing);
 			long vat = price.vat().kobo();
 			long afterVat = gross - vat;
 			long fee = price.fee().kobo();
@@ -93,11 +94,11 @@ class PricingCalculatorImplTest {
 	@ParameterizedTest
 	@CsvSource({ "22500, 750, 200", "1000, 750, 9999", "7, 10000, 0" })
 	void payingMoreNeverDeliversLessEnergy(long rate, int vatBp, int feeBp) {
-		TariffVersionView version = version(rate, vatBp, feeBp);
+		ActivePricing pricing = pricing(rate, vatBp, feeBp);
 		long previous = 0;
 
 		for (long gross = 1; gross <= 20_000; gross++) {
-			long wh = calculator.price(Money.ofKobo(gross), version).energy().wh();
+			long wh = calculator.price(Money.ofKobo(gross), pricing).energy().wh();
 
 			assertThat(wh).as("energy for %d kobo", gross).isGreaterThanOrEqualTo(previous);
 			previous = wh;
@@ -106,15 +107,15 @@ class PricingCalculatorImplTest {
 
 	@Test
 	void theSameInputAlwaysGivesTheSamePrice() {
-		TariffVersionView version = version(22_500, 750, 200);
+		ActivePricing pricing = pricing(22_500, 750, 200);
 
-		assertThat(calculator.price(Money.ofKobo(200_000), version))
-			.isEqualTo(calculator.price(Money.ofKobo(200_000), version));
+		assertThat(calculator.price(Money.ofKobo(200_000), pricing))
+			.isEqualTo(calculator.price(Money.ofKobo(200_000), pricing));
 	}
 
 	@Test
 	void aPurchaseOfZeroIsRefused() {
-		assertThatThrownBy(() -> calculator.price(Money.ZERO, version(22_500, 750, 200)))
+		assertThatThrownBy(() -> calculator.price(Money.ZERO, pricing(22_500, 750, 200)))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("zero");
 	}
@@ -122,15 +123,16 @@ class PricingCalculatorImplTest {
 	@ParameterizedTest
 	@CsvSource({ "750, 200", "0, 200", "0, 0" })
 	void anAmountTooLargeToCalculateFailsInsteadOfWrappingAround(int vatBp, int feeBp) {
-		TariffVersionView version = version(22_500, vatBp, feeBp);
+		ActivePricing pricing = pricing(22_500, vatBp, feeBp);
 
-		assertThatThrownBy(() -> calculator.price(Money.ofKobo(Long.MAX_VALUE), version))
+		assertThatThrownBy(() -> calculator.price(Money.ofKobo(Long.MAX_VALUE), pricing))
 			.isInstanceOf(ArithmeticException.class);
 	}
 
-	private static TariffVersionView version(long rate, int vatBasisPoints, int feeBasisPoints) {
-		return new TariffVersionView(UUID.randomUUID(), UUID.randomUUID(), "Standard", rate, vatBasisPoints,
+	private static ActivePricing pricing(long rate, int vatBasisPoints, int feeBasisPoints) {
+		TariffVersionView version = new TariffVersionView(UUID.randomUUID(), UUID.randomUUID(), "Standard", rate,
 				feeBasisPoints, START, true, START);
+		return new ActivePricing(version, vatBasisPoints);
 	}
 
 }

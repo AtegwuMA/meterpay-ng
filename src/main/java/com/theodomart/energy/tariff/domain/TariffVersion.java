@@ -18,8 +18,6 @@ import java.util.UUID;
 @Table(name = "tariff_versions")
 public class TariffVersion {
 
-	public static final int MAX_VAT_BASIS_POINTS = 10_000;
-
 	/** Below 100%: at exactly 100% the landlord receives nothing and the tenant gets no energy. */
 	public static final int MAX_PLATFORM_FEE_BASIS_POINTS = 9_999;
 
@@ -31,9 +29,6 @@ public class TariffVersion {
 
 	@Column(name = "rate_kobo_per_kwh", nullable = false, updatable = false)
 	private long rateKoboPerKwh;
-
-	@Column(name = "vat_basis_points", nullable = false, updatable = false)
-	private int vatBasisPoints;
 
 	@Column(name = "platform_fee_basis_points", nullable = false, updatable = false)
 	private int platformFeeBasisPoints;
@@ -48,12 +43,11 @@ public class TariffVersion {
 		// for JPA
 	}
 
-	private TariffVersion(UUID planId, long rateKoboPerKwh, int vatBasisPoints, int platformFeeBasisPoints,
-			Instant effectiveFrom, Instant createdAt) {
+	private TariffVersion(UUID planId, long rateKoboPerKwh, int platformFeeBasisPoints, Instant effectiveFrom,
+			Instant createdAt) {
 		this.id = UUID.randomUUID();
 		this.planId = Objects.requireNonNull(planId, "planId");
 		this.rateKoboPerKwh = rateKoboPerKwh;
-		this.vatBasisPoints = vatBasisPoints;
 		this.platformFeeBasisPoints = platformFeeBasisPoints;
 		this.effectiveFrom = effectiveFrom;
 		this.createdAt = createdAt;
@@ -66,13 +60,10 @@ public class TariffVersion {
 	 * @throws IllegalArgumentException if a value is out of range or effectiveFrom is in the past: a backdated
 	 * version would claim a price applied at a time when tenants were charged something else
 	 */
-	public static TariffVersion create(UUID planId, long rateKoboPerKwh, int vatBasisPoints,
-			int platformFeeBasisPoints, Instant effectiveFrom, Instant now) {
+	public static TariffVersion create(UUID planId, long rateKoboPerKwh, int platformFeeBasisPoints,
+			Instant effectiveFrom, Instant now) {
 		if (rateKoboPerKwh <= 0) {
 			throw new IllegalArgumentException("Rate must be greater than zero");
-		}
-		if (vatBasisPoints < 0 || vatBasisPoints > MAX_VAT_BASIS_POINTS) {
-			throw new IllegalArgumentException("VAT must be between 0 and " + MAX_VAT_BASIS_POINTS + " basis points");
 		}
 		if (platformFeeBasisPoints < 0 || platformFeeBasisPoints > MAX_PLATFORM_FEE_BASIS_POINTS) {
 			throw new IllegalArgumentException(
@@ -83,7 +74,7 @@ public class TariffVersion {
 		if (start.isBefore(created)) {
 			throw new IllegalArgumentException("Effective date cannot be in the past");
 		}
-		return new TariffVersion(planId, rateKoboPerKwh, vatBasisPoints, platformFeeBasisPoints, start, created);
+		return new TariffVersion(planId, rateKoboPerKwh, platformFeeBasisPoints, start, created);
 	}
 
 	public UUID getId() {
@@ -96,10 +87,6 @@ public class TariffVersion {
 
 	public long getRateKoboPerKwh() {
 		return rateKoboPerKwh;
-	}
-
-	public int getVatBasisPoints() {
-		return vatBasisPoints;
 	}
 
 	public int getPlatformFeeBasisPoints() {

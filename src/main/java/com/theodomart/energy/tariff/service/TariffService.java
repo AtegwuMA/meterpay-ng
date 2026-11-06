@@ -20,9 +20,13 @@ public interface TariffService {
 	Page<TariffVersionView> listVersions(UUID landlordId, UUID buildingId, int page, int size);
 
 	/**
-	 * The latest version that has started. Empty if the building has no tariff yet, or only future-dated ones. No
-	 * ownership check: purchases price tenants' energy with this, and tenants do not own buildings.
+	 * The building's latest version that has started and the VAT rate in force, read at one single moment so a
+	 * purchase at midnight cannot mix yesterday's price with today's VAT. Empty if the building has no tariff yet, or
+	 * only future-dated ones. No ownership check: purchases price tenants' energy with this, and tenants do not own
+	 * buildings.
+	 *
+	 * @throws IllegalStateException if no VAT rate is in force: the migrations seed one, so this is a broken database
 	 */
-	Optional<TariffVersionView> findActiveVersion(UUID buildingId);
+	Optional<ActivePricing> findActivePricing(UUID buildingId);
 
 }

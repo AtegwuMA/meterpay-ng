@@ -70,6 +70,8 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
 - [x] **M2-04 Tariff plans and versions.** Immutable versions with `effective_from`, active version lookup.
   - Done when: tests cover future-dated version not yet active.
   - Commit: `feat(tariff): add versioned tariff plans per building`
+- [x] **M2-04a Platform VAT rates.** Move VAT from tariff versions to an immutable `tax_rates` table, seeded with the current rate. `findActivePricing` reads the version and the rate at one moment (DESIGN §6.2, §8.2).
+  - Commit: `refactor(tariff): move vat from tariff versions to platform tax rates`
 - [x] **M2-05 Pricing calculator.** Pure function: gross kobo + tariff version -> vat, fee, net, Wh. Implements DESIGN §6.4 rounding. Table-driven tests including the worked example.
   - Commit: `feat(tariff): calculate vat, platform fee and energy from amount`
 - [ ] **M2-06 ADR-0005.** Rounding and VAT decision.
@@ -166,6 +168,8 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(alerting): notify tenants and landlords of alerts`
 - [ ] **M7-04 Hash-chained audit log.** `audit_log` table, `AuditService.record`, serialized writes (advisory lock), applied to money, tariff, meter state and tenancy actions, and to admin bootstrap (M3-06a).
   - Commit: `feat(audit): add hash-chained append-only audit log`
+- [ ] **M7-04a Withdraw a scheduled tariff.** `withdrawn_at` per DESIGN §6.2: one conditional UPDATE, 409 once the version has started, lookups ignore withdrawn rows, partial unique index, audited.
+  - Commit: `feat(tariff): let landlords withdraw a scheduled version`
 - [ ] **M7-05 Audit verification.** `GET /admin/audit/verify`; `AuditChainTest.tamperedRowBreaksVerification`.
   - Commit: `feat(audit): verify audit chain integrity`
 - [ ] **M7-06 ADR-0008.**

@@ -5,23 +5,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class TariffPropertiesTest {
 
 	@Test
-	void acceptsTheRatesInTheDesignExample() {
-		TariffProperties properties = new TariffProperties(750, 200);
-
-		assertThat(properties.vatBasisPoints()).isEqualTo(750);
-		assertThat(properties.platformFeeBasisPoints()).isEqualTo(200);
+	void acceptsTheFeeInTheDesignExample() {
+		assertThat(new TariffProperties(200).platformFeeBasisPoints()).isEqualTo(200);
 	}
 
 	@ParameterizedTest
-	@CsvSource({ "-1, 200, vat", "10001, 200, vat", "750, -1, platform-fee", "750, 10000, platform-fee" })
-	void refusesRatesThatWouldFailOnEveryNewVersion(int vat, int fee, String property) {
-		assertThatThrownBy(() -> new TariffProperties(vat, fee)).isInstanceOf(IllegalStateException.class)
-			.hasMessageContaining(property);
+	@ValueSource(ints = { -1, 10_000 })
+	void refusesAFeeThatWouldFailOnEveryNewVersion(int fee) {
+		assertThatThrownBy(() -> new TariffProperties(fee)).isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("platform-fee");
 	}
 
 }

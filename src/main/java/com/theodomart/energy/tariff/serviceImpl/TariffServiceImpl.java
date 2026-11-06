@@ -9,6 +9,8 @@ import com.theodomart.energy.tariff.domain.TariffPlan;
 import com.theodomart.energy.tariff.domain.TariffVersion;
 import com.theodomart.energy.tariff.repository.TariffPlanRepository;
 import com.theodomart.energy.tariff.repository.TariffVersionRepository;
+import com.theodomart.energy.tariff.repository.TaxRateRepository;
+import com.theodomart.energy.tariff.service.ActivePricing;
 import com.theodomart.energy.tariff.service.NewTariffVersion;
 import com.theodomart.energy.tariff.service.TariffService;
 import com.theodomart.energy.tariff.service.TariffVersionView;
@@ -36,16 +38,19 @@ public class TariffServiceImpl implements TariffService {
 
 	private final TariffVersionRepository versions;
 
+	private final TaxRateRepository taxRates;
+
 	private final OwnershipService ownership;
 
 	private final TariffProperties properties;
 
 	private final Clock clock;
 
-	public TariffServiceImpl(TariffPlanRepository plans, TariffVersionRepository versions, OwnershipService ownership,
-			TariffProperties properties, Clock clock) {
+	public TariffServiceImpl(TariffPlanRepository plans, TariffVersionRepository versions, TaxRateRepository taxRates,
+			OwnershipService ownership, TariffProperties properties, Clock clock) {
 		this.plans = plans;
 		this.versions = versions;
+		this.taxRates = taxRates;
 		this.ownership = ownership;
 		this.properties = properties;
 		this.clock = clock;
@@ -61,8 +66,8 @@ public class TariffServiceImpl implements TariffService {
 
 		TariffVersion version;
 		try {
-			version = TariffVersion.create(plan.getId(), command.rateKoboPerKwh(), properties.vatBasisPoints(),
-					properties.platformFeeBasisPoints(), command.effectiveFrom(), now);
+			version = TariffVersion.create(plan.getId(), command.rateKoboPerKwh(), properties.platformFeeBasisPoints(),
+					command.effectiveFrom(), now);
 		}
 		catch (IllegalArgumentException ex) {
 			throw new InvalidRequestException(ex.getMessage() + ".");
@@ -78,7 +83,7 @@ public class TariffServiceImpl implements TariffService {
 		}
 		log.info("Tariff version created: versionId={} buildingId={} effectiveFrom={}", version.getId(), buildingId,
 				version.getEffectiveFrom());
-		return toView(version, plan, activeVersionId(plan));
+		return toView(version, plan, activeVersionId(plan, now));
 	}
 
 	@Override
@@ -90,31 +95,37 @@ public class TariffServiceImpl implements TariffService {
 		if (plan.isEmpty()) {
 			return Page.empty(request);
 		}
-		UUID activeId = activeVersionId(plan.get());
+		UUID activeId = activeVersionId(plan.get(), clock.instant());
 		return versions.findByPlanId(plan.get().getId(), request)
 			.map(version -> toView(version, plan.get(), activeId));
 	}
 
 	@Override
 	@Transactional(readOnly = true)
-	public Optional<TariffVersionView> findActiveVersion(UUID buildingId) {
+	public Optional<ActivePricing> findActivePricing(UUID buildingId) {
+		Instant now = clock.instant();
 		return plans.findByBuildingId(buildingId)
-			.flatMap(plan -> activeVersion(plan).map(version -> toView(version, plan, version.getId())));
+			.flatMap(plan -> activeVersion(plan, now).map(version -> new ActivePricing(
+					toView(version, plan, version.getId()), vatBasisPointsAt(now))));
 	}
 
-	private UUID activeVersionId(TariffPlan plan) {
-		return activeVersion(plan).map(TariffVersion::getId).orElse(null);
+	private int vatBasisPointsAt(Instant at) {
+		return taxRates.findFirstByEffectiveFromLessThanEqualOrderByEffectiveFromDesc(at)
+			.orElseThrow(() -> new IllegalStateException("No VAT rate is in force at " + at))
+			.getVatBasisPoints();
 	}
 
-	private Optional<TariffVersion> activeVersion(TariffPlan plan) {
-		return versions.findFirstByPlanIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(plan.getId(),
-				clock.instant());
+	private UUID activeVersionId(TariffPlan plan, Instant at) {
+		return activeVersion(plan, at).map(TariffVersion::getId).orElse(null);
+	}
+
+	private Optional<TariffVersion> activeVersion(TariffPlan plan, Instant at) {
+		return versions.findFirstByPlanIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(plan.getId(), at);
 	}
 
 	private static TariffVersionView toView(TariffVersion v, TariffPlan plan, UUID activeId) {
 		return new TariffVersionView(v.getId(), plan.getBuildingId(), plan.getName(), v.getRateKoboPerKwh(),
-				v.getVatBasisPoints(), v.getPlatformFeeBasisPoints(), v.getEffectiveFrom(), v.getId().equals(activeId),
-				v.getCreatedAt());
+				v.getPlatformFeeBasisPoints(), v.getEffectiveFrom(), v.getId().equals(activeId), v.getCreatedAt());
 	}
 
 }

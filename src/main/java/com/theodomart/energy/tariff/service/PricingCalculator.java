@@ -14,6 +14,6 @@ public interface PricingCalculator {
 	 * @throws IllegalArgumentException if gross is zero: there is nothing to price
 	 * @throws ArithmeticException if the amount is too large to calculate exactly
 	 */
-	PriceBreakdown price(Money gross, TariffVersionView version);
+	PriceBreakdown price(Money gross, ActivePricing pricing);
 
 }

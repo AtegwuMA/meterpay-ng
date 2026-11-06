@@ -17,10 +17,12 @@ import com.theodomart.energy.common.domain.Energy;
 import com.theodomart.energy.common.domain.Money;
 import com.theodomart.energy.tariff.repository.TariffPlanRepository;
 import com.theodomart.energy.tariff.repository.TariffVersionRepository;
+import com.theodomart.energy.tariff.repository.TaxRateRepository;
+import com.theodomart.energy.tariff.service.ActivePricing;
 import com.theodomart.energy.tariff.service.PriceBreakdown;
 import com.theodomart.energy.tariff.service.PricingCalculator;
 import com.theodomart.energy.tariff.service.TariffService;
-import com.theodomart.energy.tariff.service.TariffVersionView;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -62,19 +64,22 @@ class TariffFlowIT extends IntegrationTest {
 
 	private final TariffVersionRepository versions;
 
+	private final TaxRateRepository taxRates;
+
 	private String landlord;
 
 	private String building;
 
 	@Autowired
 	TariffFlowIT(MockMvc mvc, JdbcTemplate jdbc, TariffService tariffs, PricingCalculator pricing,
-			TariffPlanRepository plans, TariffVersionRepository versions) {
+			TariffPlanRepository plans, TariffVersionRepository versions, TaxRateRepository taxRates) {
 		this.mvc = mvc;
 		this.jdbc = jdbc;
 		this.tariffs = tariffs;
 		this.pricing = pricing;
 		this.plans = plans;
 		this.versions = versions;
+		this.taxRates = taxRates;
 	}
 
 	@BeforeEach
@@ -94,23 +99,56 @@ class TariffFlowIT extends IntegrationTest {
 		created.andExpect(header().string(HttpHeaders.LOCATION,
 				endsWith("/api/v1/buildings/" + building + "/tariffs/" + id)));
 
-		assertThat(activeVersion().map(TariffVersionView::id)).contains(UUID.fromString(id));
+		assertThat(activePricing().map(pricing -> pricing.version().id())).contains(UUID.fromString(id));
 	}
 
 	@Test
-	void vatAndFeeComeFromThePlatformNotTheLandlord() throws Exception {
+	void landlordCannotSetVatOrTheFee() throws Exception {
 		mvc.perform(authorised(post(tariffsOf(building)), landlord).content("""
 				{"rateKoboPerKwh": 22500, "vatBasisPoints": 0, "platformFeeBasisPoints": 0}
 				""")).andExpect(status().isCreated())
-			.andExpect(jsonPath("$.vatBasisPoints").value(750))
+			.andExpect(jsonPath("$.vatBasisPoints").doesNotExist())
 			.andExpect(jsonPath("$.platformFeeBasisPoints").value(200));
+		assertThat(activePricing().map(ActivePricing::vatBasisPoints)).contains(750);
+	}
+
+	@Test
+	void aScheduledVatChangeStartsOnItsDateWithoutTouchingAnyTariff() throws Exception {
+		addVersion(landlord, building, 22_500).andExpect(status().isCreated());
+		UUID rate = UUID.randomUUID();
+		Instant start = Instant.parse("2099-01-01T00:00:00Z");
+		jdbc.update("INSERT INTO tax_rates (id, vat_basis_points, effective_from, created_at) VALUES (?, 1000, ?, now())",
+				rate, Timestamp.from(start));
+		try {
+			assertThat(vatAt(start.minus(1, ChronoUnit.MICROS))).isEqualTo(750);
+			assertThat(vatAt(start)).isEqualTo(1_000);
+			assertThat(activePricing().map(ActivePricing::vatBasisPoints)).contains(750);
+		}
+		finally {
+			// Other tests in this class share the database and must keep seeing the seeded rate.
+			jdbc.update("DELETE FROM tax_rates WHERE id = ?", rate);
+		}
+	}
+
+	@Test
+	void databaseRejectsAnUnusableTaxRate() {
+		String insert = "INSERT INTO tax_rates (id, vat_basis_points, effective_from, created_at) VALUES (?, ?, ?, now())";
+		Timestamp seeded = Timestamp.from(Instant.parse("2020-01-31T23:00:00Z"));
+		Timestamp unused = Timestamp.from(Instant.parse("2098-01-01T00:00:00Z"));
+
+		assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID(), 10_001, unused))
+			.isInstanceOf(DataIntegrityViolationException.class)
+			.hasMessageContaining("ck_tax_rates_vat");
+		assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID(), 750, seeded))
+			.isInstanceOf(DataIntegrityViolationException.class)
+			.hasMessageContaining("uk_tax_rates_effective_from");
 	}
 
 	@Test
 	void theActiveVersionPricesThePurchaseInTheDesignExample() throws Exception {
 		addVersion(landlord, building, 22_500).andExpect(status().isCreated());
 
-		PriceBreakdown price = pricing.price(Money.ofKobo(200_000), activeVersion().orElseThrow());
+		PriceBreakdown price = pricing.price(Money.ofKobo(200_000), activePricing().orElseThrow());
 
 		assertThat(price.vat()).isEqualTo(Money.ofKobo(13_953));
 		assertThat(price.fee()).isEqualTo(Money.ofKobo(3_720));
@@ -134,14 +172,14 @@ class TariffFlowIT extends IntegrationTest {
 			.andExpect(jsonPath("$.content[0].active").value(false))
 			.andExpect(jsonPath("$.content[1].id").value(current))
 			.andExpect(jsonPath("$.content[1].active").value(true));
-		assertThat(activeVersion().map(TariffVersionView::rateKoboPerKwh)).contains(22_500L);
+		assertThat(activePricing().map(pricing -> pricing.version().rateKoboPerKwh())).contains(22_500L);
 	}
 
 	@Test
 	void buildingWithOnlyAFutureVersionHasNoActiveTariff() throws Exception {
 		addVersion(landlord, building, 22_500, future(1)).andExpect(status().isCreated());
 
-		assertThat(activeVersion()).isEmpty();
+		assertThat(activePricing()).isEmpty();
 	}
 
 	@Test
@@ -150,7 +188,7 @@ class TariffFlowIT extends IntegrationTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.totalElements").value(0))
 			.andExpect(jsonPath("$.content.length()").value(0));
-		assertThat(activeVersion()).isEmpty();
+		assertThat(activePricing()).isEmpty();
 	}
 
 	@Test
@@ -277,17 +315,16 @@ class TariffFlowIT extends IntegrationTest {
 		addVersion(landlord, building, 22_500).andExpect(status().isCreated());
 		UUID plan = plans.findByBuildingId(UUID.fromString(building)).orElseThrow().getId();
 
-		assertRejected(plan, 0, 750, 200, "ck_tariff_versions_rate");
-		assertRejected(plan, 22_500, 10_001, 200, "ck_tariff_versions_vat");
-		assertRejected(plan, 22_500, 750, 10_000, "ck_tariff_versions_fee");
+		assertRejected(plan, 0, 200, "ck_tariff_versions_rate");
+		assertRejected(plan, 22_500, 10_000, "ck_tariff_versions_fee");
 	}
 
-	private void assertRejected(UUID plan, long rate, int vat, int fee, String constraint) {
+	private void assertRejected(UUID plan, long rate, int fee, String constraint) {
 		assertThatThrownBy(() -> jdbc.update("""
-				INSERT INTO tariff_versions (id, plan_id, rate_kobo_per_kwh, vat_basis_points,
-					platform_fee_basis_points, effective_from, created_at)
-				VALUES (?, ?, ?, ?, ?, now(), now())
-				""", UUID.randomUUID(), plan, rate, vat, fee))
+				INSERT INTO tariff_versions (id, plan_id, rate_kobo_per_kwh, platform_fee_basis_points, effective_from,
+					created_at)
+				VALUES (?, ?, ?, ?, now(), now())
+				""", UUID.randomUUID(), plan, rate, fee))
 			.isInstanceOf(DataIntegrityViolationException.class)
 			.hasMessageContaining(constraint);
 	}
@@ -298,8 +335,14 @@ class TariffFlowIT extends IntegrationTest {
 			.getRateKoboPerKwh();
 	}
 
-	private Optional<TariffVersionView> activeVersion() {
-		return tariffs.findActiveVersion(UUID.fromString(building));
+	private Optional<ActivePricing> activePricing() {
+		return tariffs.findActivePricing(UUID.fromString(building));
+	}
+
+	private int vatAt(Instant at) {
+		return taxRates.findFirstByEffectiveFromLessThanEqualOrderByEffectiveFromDesc(at)
+			.orElseThrow()
+			.getVatBasisPoints();
 	}
 
 	private Integer planCount() {
