@@ -177,9 +177,9 @@ All tables: `id UUID PK`, `created_at TIMESTAMPTZ`, snake_case columns. Mutable 
 A landlord can withdraw a version only before it starts (not built yet, M7-04a). `withdrawn_at` is set by one conditional UPDATE, with the time from the injected `Clock`, `WHERE id = ? AND effective_from > ? AND withdrawn_at IS NULL`. If no row changes the answer is 409, because the version has started and can only be replaced by a newer one. The active version lookup ignores withdrawn rows, and the unique rule on `plan_id`, `effective_from` becomes a partial index on rows that are not withdrawn, so the same moment can be rescheduled. A version that has ever applied to a purchase is therefore permanent.
 **tax_rates**: `vat_basis_points` (750 = 7.5%), `effective_from UNIQUE`. VAT is a legal rate that applies to every building, not part of a landlord's price, so it is not stored on tariff versions. Rows are immutable, and a law change is one new row with a future `effective_from`, added by a migration: every building then changes on that date with nothing for landlords to do. The application only reads this table, and V9 seeds the first row because a purchase cannot be priced without one.
 
-**ledger_accounts**: `owner_type` (TENANT, LANDLORD, PLATFORM), `owner_id NULL`, `type` (see 6.3), `currency` ('NGN'), `balance_kobo`, `version`. UNIQUE(`owner_type`, `owner_id`, `type`).
+**ledger_accounts**: `owner_type` (TENANT, LANDLORD, PLATFORM), `owner_id NULL`, `type` (see 6.3), `currency` ('NGN'), `balance_kobo`, `version`. UNIQUE NULLS NOT DISTINCT(`owner_type`, `owner_id`, `type`): platform accounts have no owner, and a plain UNIQUE treats NULLs as different, so it would allow duplicates. CHECKs: `owner_id` is NULL exactly for PLATFORM, each type belongs to one kind of owner (6.3), and only TENANT_WALLET has a floor of zero.
 
-**journal_entries**: `entry_type` (WALLET_TOPUP, ENERGY_PURCHASE, REFUND, ADJUSTMENT), `reference_type`, `reference_id`, `idempotency_key UNIQUE`, `description`, `posted_at`
+**journal_entries**: `entry_type` (WALLET_TOPUP, ENERGY_PURCHASE, REFUND, ADJUSTMENT), `reference_type`, `reference_id` (both or neither), `idempotency_key UNIQUE` (not blank), `description`, `posted_at`
 **postings**: `journal_entry_id`, `account_id`, `direction` (DEBIT, CREDIT), `amount_kobo > 0`
 
 **payment_intents**: `tenant_id`, `amount_kobo`, `status`, `idempotency_key UNIQUE`, `gateway`, `gateway_reference UNIQUE`, `authorization_url`, `failure_reason`, `paid_at`
@@ -513,6 +513,7 @@ Required named tests (portfolio evidence):
 - Profiles: `local` (simulator, Paystack test keys or WireMock stub; reads `.env`), `test` (fixed test JWT secret, BCrypt strength 4), `prod` (Tuya optional, JSON logs).
 - Ports and secrets are configured in `.env`, copied from `.env.example`. `JWT_SECRET` has no default: generate one with `openssl rand -base64 48`. From M3-06a: `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PHONE`, `BOOTSTRAP_ADMIN_PASSWORD` (all or none).
 - Dockerfile: multi-stage, layered jar, non-root user.
+- PostgreSQL 15 or later in every environment, because V10 uses `UNIQUE NULLS NOT DISTINCT`: an older server fails that migration. Local and test pin `postgres:16-alpine`, and production must match the same major version.
 - Prod target: Oracle Always Free VM behind Nginx, subdomain `meterpay.theodomart.com`, Let's Encrypt.
 
 ## 15. Architecture decision records (docs/adr)
