@@ -143,6 +143,7 @@ Modules may depend on each other's `service` packages in both directions as long
 3. Controllers never return JPA entities, not even inside generics such as `ResponseEntity<List<Entity>>`. Only records.
 4. `ledger`, `audit` and `tariff` repositories expose no delete methods: they may not extend `CrudRepository` or `JpaRepository`, which bring `deleteById` and friends, nor declare `delete*` or `remove*` methods.
 5. No class outside `common` declares a `double`, `Double`, `float`, `Float` or `BigDecimal` field. This covers every field, not only money and energy, so renaming a field cannot dodge it (ADR-0002). Nothing here needs fractions: voltage is in decivolts, power in whole watts.
+6. `ledger` depends on no other feature module except `security`. Every module that moves money calls the ledger, so the ledger calling back would tie money rules to the modules they serve. This is stricter than 5.1 allows for other modules. There is no general cycle rule: `property` and `security` already call each other's services (5.1), and Spring refuses a constructor cycle between beans at startup.
 
 ## 6. Domain model
 

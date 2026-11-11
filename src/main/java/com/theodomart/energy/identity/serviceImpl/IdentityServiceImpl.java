@@ -18,6 +18,7 @@ import com.theodomart.energy.identity.service.InvalidCredentialsException;
 import com.theodomart.energy.identity.service.InvalidRefreshTokenException;
 import com.theodomart.energy.identity.service.RegisterCommand;
 import com.theodomart.energy.identity.service.UserView;
+import com.theodomart.energy.ledger.service.LedgerService;
 import com.theodomart.energy.property.service.TenancyService;
 import com.theodomart.energy.security.service.IssuedToken;
 import com.theodomart.energy.security.service.TokenService;
@@ -51,6 +52,8 @@ public class IdentityServiceImpl implements IdentityService {
 
 	private final TenancyService tenancies;
 
+	private final LedgerService ledger;
+
 	private final IdentityProperties properties;
 
 	private final Clock clock;
@@ -60,13 +63,14 @@ public class IdentityServiceImpl implements IdentityService {
 	private final String dummyHash;
 
 	public IdentityServiceImpl(UserRepository users, RefreshTokenRepository refreshTokens,
-			PasswordEncoder passwordEncoder, TokenService tokens, TenancyService tenancies,
+			PasswordEncoder passwordEncoder, TokenService tokens, TenancyService tenancies, LedgerService ledger,
 			IdentityProperties properties, Clock clock) {
 		this.users = users;
 		this.refreshTokens = refreshTokens;
 		this.passwordEncoder = passwordEncoder;
 		this.tokens = tokens;
 		this.tenancies = tenancies;
+		this.ledger = ledger;
 		this.properties = properties;
 		this.clock = clock;
 		this.dummyHash = passwordEncoder.encode("timing-equaliser-" + UUID.randomUUID());
@@ -76,6 +80,8 @@ public class IdentityServiceImpl implements IdentityService {
 	@Transactional
 	public UserView registerLandlord(RegisterCommand command) {
 		User user = createUser(command, Role.LANDLORD);
+		// Same transaction as the user (DESIGN 17.2): a landlord can never exist without a revenue account.
+		ledger.openLandlordRevenueAccount(user.getId());
 		log.info("Landlord registered: userId={}", user.getId());
 		return toView(user);
 	}
@@ -84,6 +90,8 @@ public class IdentityServiceImpl implements IdentityService {
 	@Transactional
 	public UserView registerTenant(RegisterCommand command, String inviteCode) {
 		User user = createUser(command, Role.TENANT);
+		// Opened before the invite is redeemed, so a bad code rolls the wallet back along with the user.
+		ledger.openTenantWallet(user.getId());
 		tenancies.redeemInvite(inviteCode, user.getId());
 		log.info("Tenant registered: userId={}", user.getId());
 		return toView(user);

@@ -126,6 +126,25 @@ final class ArchitectureRules {
 			.allowEmptyShould(true);
 	}
 
+	/**
+	 * Rule 6: the ledger depends on no feature module except security. Everything that moves money calls the ledger,
+	 * so the ledger calling back would tie money rules to the modules they serve, and could form a cycle with them.
+	 */
+	static ArchRule ledgerDependsOnNoOtherFeatureModule(String root) {
+		String[] others = MODULES.stream()
+			.filter(module -> !module.equals("ledger") && !module.equals("security"))
+			.map(module -> root + "." + module + "..")
+			.toArray(String[]::new);
+		return noClasses().that()
+			.resideInAPackage(root + ".ledger..")
+			.should()
+			.dependOnClassesThat()
+			.resideInAnyPackage(others)
+			.because("every module that moves money calls the ledger, so the ledger must not call them back"
+					+ " (DESIGN 5.2 rule 6)")
+			.allowEmptyShould(true);
+	}
+
 	private static ArchCondition<JavaMethod> notReturnJpaEntities() {
 		return new ArchCondition<>("not return JPA entities") {
 			@Override

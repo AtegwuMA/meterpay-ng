@@ -42,6 +42,11 @@ class ArchitectureTest {
 	}
 
 	@Test
+	void ledgerDependsOnNoOtherFeatureModule() {
+		ArchitectureRules.ledgerDependsOnNoOtherFeatureModule(ROOT).check(PRODUCTION_CLASSES);
+	}
+
+	@Test
 	void noFloatingPointFieldsOutsideCommon() {
 		ArchitectureRules.noFloatingPointFieldsOutsideCommon(ROOT).check(PRODUCTION_CLASSES);
 	}

@@ -73,6 +73,15 @@ class ArchitectureRulesTest {
 	}
 
 	@Test
+	void rule6FlagsTheLedgerCallingBackIntoAnotherModule() {
+		EvaluationResult result = ArchitectureRules.ledgerDependsOnNoOtherFeatureModule(ROOT).evaluate(FIXTURES);
+
+		assertThat(result.hasViolation()).isTrue();
+		assertThat(report(result)).contains("archfixture.ledger.serviceImpl.WalletOwners")
+			.contains("archfixture.identity.service.UserDirectory");
+	}
+
+	@Test
 	void rule5FlagsFloatingPointMoneyOutsideCommon() {
 		EvaluationResult result = ArchitectureRules.noFloatingPointFieldsOutsideCommon(ROOT).evaluate(FIXTURES);
 
