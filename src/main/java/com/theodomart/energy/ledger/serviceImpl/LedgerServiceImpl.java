@@ -1,5 +1,6 @@
 package com.theodomart.energy.ledger.serviceImpl;
 
+import com.theodomart.energy.common.error.IdempotencyConflictException;
 import com.theodomart.energy.ledger.domain.JournalEntry;
 import com.theodomart.energy.ledger.domain.LedgerAccount;
 import com.theodomart.energy.ledger.domain.Posting;
@@ -18,6 +19,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,13 +71,19 @@ public class LedgerServiceImpl implements LedgerService {
 			return Posting.of(entry.getId(), account.getId(), line.direction(), line.amount().kobo(), now);
 		}).toList();
 
-		// The entry and its postings are written first, while no account has changed: a flush writes every pending
-		// change, so flushing them later would also write the balances, in whatever order Hibernate holds them.
-		entries.saveAndFlush(entry);
+		// The key is claimed first, while no account has changed. If it was already taken this is a retry: return the
+		// entry that won and touch nothing. A concurrent post with the same key waits here until the first commits.
+		int inserted = entries.insertIfAbsent(entry.getId(), entry.getEntryType().name(), entry.getReferenceType(),
+				entry.getReferenceId(), entry.getIdempotencyKey(), entry.getDescription(), entry.getPostedAt(),
+				entry.getCreatedAt());
+		if (inserted == 0) {
+			return replay(command, lines);
+		}
 		postings.saveAll(lines);
 
 		// Balances one at a time in a fixed order. Each UPDATE holds its row until commit, so two entries that touch
-		// the same accounts in opposite orders could otherwise deadlock.
+		// the same accounts in opposite orders could otherwise deadlock. Each flush writes only this one account,
+		// because no other account has changed yet.
 		for (LedgerAccount account : totals.keySet().stream().sorted(UPDATE_ORDER).toList()) {
 			long[] debitsAndCredits = totals.get(account);
 			account.post(debitsAndCredits[0], debitsAndCredits[1], now);
@@ -83,6 +91,37 @@ public class LedgerServiceImpl implements LedgerService {
 		}
 		log.info("Journal entry posted: entryId={} type={} lines={}", entry.getId(), entry.getEntryType(),
 				lines.size());
+		return toView(entry);
+	}
+
+	/**
+	 * The same key again. It is only a retry if it asks for exactly the same money movement: the same type, the same
+	 * reference and the same lines. The description is for people and is not compared.
+	 */
+	private JournalEntryView replay(JournalEntryCommand command, List<Posting> requested) {
+		JournalEntry existing = entries.findByIdempotencyKey(command.idempotencyKey())
+			.orElseThrow(() -> new IllegalStateException("Idempotency key was taken but no entry has it"));
+		boolean sameMovement = existing.getEntryType() == command.type()
+				&& Objects.equals(existing.getReferenceType(), command.referenceType())
+				&& Objects.equals(existing.getReferenceId(), command.referenceId())
+				&& lineKeys(postings.findByJournalEntryId(existing.getId())).equals(lineKeys(requested));
+		if (!sameMovement) {
+			log.warn("Idempotency key reused for a different entry: entryId={}", existing.getId());
+			throw new IdempotencyConflictException();
+		}
+		log.info("Journal entry replayed: entryId={}", existing.getId());
+		return toView(existing);
+	}
+
+	/** Lines as comparable values, sorted, so the order a caller lists them in does not matter. */
+	private static List<String> lineKeys(List<Posting> lines) {
+		return lines.stream()
+			.map(line -> line.getAccountId() + ":" + line.getDirection() + ":" + line.getAmountKobo())
+			.sorted()
+			.toList();
+	}
+
+	private static JournalEntryView toView(JournalEntry entry) {
 		return new JournalEntryView(entry.getId(), entry.getEntryType(), entry.getIdempotencyKey(),
 				entry.getReferenceType(), entry.getReferenceId(), entry.getPostedAt());
 	}

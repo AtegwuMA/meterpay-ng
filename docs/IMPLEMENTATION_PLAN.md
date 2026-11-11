@@ -92,7 +92,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
 - [x] **M3-03 Posting service.** `LedgerService.post(JournalEntryCommand)`: validates balance, applies postings, updates account balances with optimistic locking, rejects negative TENANT_WALLET.
   - Done when: `LedgerInvariantTest.everyJournalEntryBalances` and insufficient balance tests pass.
   - Commit: `feat(ledger): post balanced journal entries atomically`
-- [ ] **M3-04 Ledger idempotency.** Duplicate `idempotency_key` returns the existing entry (catch unique violation, no check-then-insert).
+- [x] **M3-04 Ledger idempotency.** Duplicate `idempotency_key` returns the existing entry, decided by the unique constraint with `INSERT ... ON CONFLICT DO NOTHING`, no check-then-insert. Not by catching the violation: posting joins the caller's transaction, and in Postgres a failed insert aborts it. The same key for a different entry is 422 `IDEMPOTENCY_KEY_REUSED`.
   - Commit: `feat(ledger): make journal posting idempotent via unique key`
 - [ ] **M3-05 Concurrency test.** `ConcurrentPurchaseIT.parallelPurchasesNeverOverdrawWallet` style test at ledger level: 20 threads debit one wallet. Add retry on optimistic lock failure (max 3).
   - Commit: `test(ledger): prove concurrent debits never overdraw a wallet`

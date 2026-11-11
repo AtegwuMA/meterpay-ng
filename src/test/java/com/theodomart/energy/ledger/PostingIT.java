@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.theodomart.energy.IntegrationTest;
 import com.theodomart.energy.common.domain.Money;
+import com.theodomart.energy.common.error.IdempotencyConflictException;
 import com.theodomart.energy.ledger.service.AccountRef;
 import com.theodomart.energy.ledger.service.EntryType;
 import com.theodomart.energy.ledger.service.InsufficientWalletBalanceException;
@@ -12,14 +13,20 @@ import com.theodomart.energy.ledger.service.JournalEntryCommand;
 import com.theodomart.energy.ledger.service.JournalEntryView;
 import com.theodomart.energy.ledger.service.LedgerService;
 import com.theodomart.energy.ledger.service.PostingLine;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -119,13 +126,81 @@ class PostingIT extends IntegrationTest {
 	}
 
 	@Test
-	void reusingAnIdempotencyKeyPostsNothingTheSecondTime() {
+	void postingTheSameEntryAgainReturnsTheFirstAndMovesNothing() {
+		JournalEntryCommand topUp = topUp(500_000);
+		JournalEntryView first = ledger.post(topUp);
+
+		JournalEntryView again = ledger.post(topUp);
+
+		assertThat(again.id()).isEqualTo(first.id());
+		assertThat(balanceOf(tenant)).isEqualTo(500_000);
+		assertThat(entriesWithKey(topUp.idempotencyKey())).isOne();
+	}
+
+	@Test
+	void theLinesMayComeInAnyOrderOnARetry() {
 		JournalEntryCommand topUp = topUp(500_000);
 		ledger.post(topUp);
+		JournalEntryCommand reordered = new JournalEntryCommand(topUp.type(), topUp.idempotencyKey(),
+				topUp.referenceType(), topUp.referenceId(), "Described differently", topUp.lines().reversed());
 
-		// M3-04 turns this into returning the first entry. Until then the unique key refuses it outright.
-		assertThatThrownBy(() -> ledger.post(topUp)).isInstanceOf(DataIntegrityViolationException.class);
+		ledger.post(reordered);
+
 		assertThat(balanceOf(tenant)).isEqualTo(500_000);
+	}
+
+	@Test
+	void theSameKeyForADifferentAmountIsRefusedAndChangesNothing() {
+		JournalEntryCommand topUp = topUp(500_000);
+		ledger.post(topUp);
+		JournalEntryCommand bigger = new JournalEntryCommand(topUp.type(), topUp.idempotencyKey(), topUp.referenceType(),
+				topUp.referenceId(), null, List.of(PostingLine.debit(AccountRef.gatewayClearing(), Money.ofKobo(900_000)),
+						PostingLine.credit(AccountRef.tenantWallet(tenant), Money.ofKobo(900_000))));
+
+		assertThatThrownBy(() -> ledger.post(bigger)).isInstanceOf(IdempotencyConflictException.class)
+			.hasMessageContaining("different request");
+		assertThat(balanceOf(tenant)).isEqualTo(500_000);
+	}
+
+	@Test
+	void aRepeatInsideACallersTransactionLeavesItUsable() {
+		JournalEntryCommand topUp = topUp(500_000);
+
+		// Catching a unique violation here would have aborted this transaction, and the purchase around it with it.
+		Long balance = transaction.execute(status -> {
+			ledger.post(topUp);
+			ledger.post(topUp);
+			return balanceOf(tenant);
+		});
+
+		assertThat(balance).isEqualTo(500_000);
+		assertThat(balanceOf(tenant)).isEqualTo(500_000);
+	}
+
+	@Test
+	void concurrentRetriesOfOneEntryPostItOnce() throws Exception {
+		JournalEntryCommand topUp = topUp(500_000);
+		int threads = 8;
+		CountDownLatch start = new CountDownLatch(1);
+		List<Future<JournalEntryView>> results = new ArrayList<>();
+
+		try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
+			for (int i = 0; i < threads; i++) {
+				results.add(pool.submit(() -> {
+					start.await();
+					return ledger.post(topUp);
+				}));
+			}
+			start.countDown();
+			Set<UUID> ids = new HashSet<>();
+			for (Future<JournalEntryView> result : results) {
+				ids.add(result.get().id());
+			}
+			assertThat(ids).hasSize(1);
+		}
+
+		assertThat(balanceOf(tenant)).isEqualTo(500_000);
+		assertThat(entriesWithKey(topUp.idempotencyKey())).isOne();
 	}
 
 	@Test
@@ -185,6 +260,10 @@ class PostingIT extends IntegrationTest {
 						PostingLine.credit(AccountRef.vatPayable(), Money.ofKobo(vat)),
 						PostingLine.credit(AccountRef.platformFeeRevenue(), Money.ofKobo(fee)),
 						PostingLine.credit(AccountRef.landlordRevenue(landlord), Money.ofKobo(net))));
+	}
+
+	private int entriesWithKey(String key) {
+		return jdbc.queryForObject("SELECT count(*) FROM journal_entries WHERE idempotency_key = ?", Integer.class, key);
 	}
 
 	private long balanceOf(UUID owner) {

@@ -10,4 +10,6 @@ public interface PostingRepository extends Repository<Posting, UUID> {
 
 	List<Posting> saveAll(Iterable<Posting> postings);
 
+	List<Posting> findByJournalEntryId(UUID journalEntryId);
+
 }

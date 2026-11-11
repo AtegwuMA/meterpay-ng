@@ -148,8 +148,16 @@ public class JournalEntry {
 		return referenceId;
 	}
 
+	public String getDescription() {
+		return description;
+	}
+
 	public Instant getPostedAt() {
 		return postedAt;
+	}
+
+	public Instant getCreatedAt() {
+		return createdAt;
 	}
 
 	@Override

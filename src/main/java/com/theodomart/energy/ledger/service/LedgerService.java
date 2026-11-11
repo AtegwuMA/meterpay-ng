@@ -11,8 +11,11 @@ public interface LedgerService {
 	 * @throws IllegalArgumentException if the entry is malformed or its debits and credits differ: a bug in the caller
 	 * @throws InsufficientWalletBalanceException if a tenant's wallet would go below zero
 	 * @throws org.springframework.dao.OptimisticLockingFailureException if an account changed concurrently
-	 * @throws org.springframework.dao.DataIntegrityViolationException if the idempotency key was used before (M3-04
-	 * will return the existing entry instead)
+	 * <p>Idempotent: posting the same command again, with the same key, returns the entry already posted and changes
+	 * nothing. Safe for concurrent retries, and safe inside a caller's transaction, which a repeat leaves usable.
+	 *
+	 * @throws com.theodomart.energy.common.error.IdempotencyConflictException if the key was used for a different
+	 * money movement (type, reference or lines)
 	 */
 	JournalEntryView post(JournalEntryCommand command);
 

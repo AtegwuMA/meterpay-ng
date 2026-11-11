@@ -11,13 +11,16 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.theodomart.energy.common.domain.Money;
+import com.theodomart.energy.common.error.IdempotencyConflictException;
 import com.theodomart.energy.ledger.domain.JournalEntry;
 import com.theodomart.energy.ledger.domain.LedgerAccount;
+import com.theodomart.energy.ledger.domain.Posting;
 import com.theodomart.energy.ledger.repository.JournalEntryRepository;
 import com.theodomart.energy.ledger.repository.LedgerAccountRepository;
 import com.theodomart.energy.ledger.repository.PostingRepository;
 import com.theodomart.energy.ledger.service.AccountRef;
 import com.theodomart.energy.ledger.service.AccountType;
+import com.theodomart.energy.ledger.service.Direction;
 import com.theodomart.energy.ledger.service.EntryType;
 import com.theodomart.energy.ledger.service.InsufficientWalletBalanceException;
 import com.theodomart.energy.ledger.service.JournalEntryCommand;
@@ -66,6 +69,7 @@ class LedgerServiceImplTest {
 		revenue = account(AccountType.LANDLORD_REVENUE, landlord);
 		vat = account(AccountType.VAT_PAYABLE, null);
 		fee = account(AccountType.PLATFORM_FEE_REVENUE, null);
+		when(entries.insertIfAbsent(any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
 	}
 
 	@Test
@@ -119,7 +123,8 @@ class LedgerServiceImplTest {
 			.sorted(Comparator.comparing(account -> account.getId().toString()))
 			.toList();
 		InOrder order = inOrder(entries, postings, accounts);
-		order.verify(entries).saveAndFlush(any(JournalEntry.class));
+		order.verify(entries).insertIfAbsent(any(), eq("ENERGY_PURCHASE"), any(), any(), eq("purchase-2"), any(), any(),
+				any());
 		order.verify(postings).saveAll(any());
 		for (LedgerAccount account : expectedOrder) {
 			order.verify(accounts).saveAndFlush(account);
@@ -144,7 +149,7 @@ class LedgerServiceImplTest {
 						PostingLine.credit(AccountRef.vatPayable(), Money.ofKobo(99))));
 
 		assertThatThrownBy(() -> ledger.post(unbalanced)).isInstanceOf(IllegalArgumentException.class);
-		verify(entries, never()).saveAndFlush(any());
+		verify(entries, never()).insertIfAbsent(any(), any(), any(), any(), any(), any(), any(), any());
 		verify(accounts, never()).saveAndFlush(any());
 	}
 
@@ -168,6 +173,64 @@ class LedgerServiceImplTest {
 
 		assertThatThrownBy(() -> ledger.post(command)).isInstanceOf(IllegalStateException.class)
 			.hasMessageContaining("TENANT_WALLET");
+	}
+
+	@Test
+	void theSameEntryAgainReturnsTheFirstAndMovesNothing() {
+		JournalEntry first = alreadyPosted("purchase-3", List.of(posting(wallet, Direction.DEBIT, 200_000),
+				posting(vat, Direction.CREDIT, 13_953), posting(fee, Direction.CREDIT, 3_720),
+				posting(revenue, Direction.CREDIT, 182_327)));
+
+		JournalEntryView view = ledger.post(purchase("purchase-3"));
+
+		assertThat(view.id()).isEqualTo(first.getId());
+		assertThat(wallet.getBalanceKobo()).isEqualTo(500_000);
+		verify(postings, never()).saveAll(any());
+		verify(accounts, never()).saveAndFlush(any());
+	}
+
+	@Test
+	void theSameKeyForADifferentAmountIsRefused() {
+		alreadyPosted("purchase-4", List.of(posting(wallet, Direction.DEBIT, 100_000),
+				posting(revenue, Direction.CREDIT, 100_000)));
+
+		assertThatThrownBy(() -> ledger.post(purchase("purchase-4"))).isInstanceOf(IdempotencyConflictException.class);
+		verify(accounts, never()).saveAndFlush(any());
+	}
+
+	@Test
+	void theSameKeyForADifferentEntryTypeIsRefused() {
+		alreadyPosted("purchase-5", List.of(posting(wallet, Direction.DEBIT, 200_000),
+				posting(vat, Direction.CREDIT, 13_953), posting(fee, Direction.CREDIT, 3_720),
+				posting(revenue, Direction.CREDIT, 182_327)), EntryType.REFUND);
+
+		assertThatThrownBy(() -> ledger.post(purchase("purchase-5"))).isInstanceOf(IdempotencyConflictException.class);
+	}
+
+	@Test
+	void aTakenKeyWithNoEntryIsABug() {
+		when(entries.insertIfAbsent(any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
+
+		assertThatThrownBy(() -> ledger.post(purchase("ghost"))).isInstanceOf(IllegalStateException.class);
+	}
+
+	private JournalEntry alreadyPosted(String key, List<Posting> lines) {
+		return alreadyPosted(key, lines, EntryType.ENERGY_PURCHASE);
+	}
+
+	private JournalEntry alreadyPosted(String key, List<Posting> lines, EntryType type) {
+		JournalEntry first = JournalEntry.create(type, key, null, null, "Energy purchase",
+				List.of(PostingLine.debit(AccountRef.vatPayable(), Money.ofKobo(1)),
+						PostingLine.credit(AccountRef.platformFeeRevenue(), Money.ofKobo(1))),
+				NOW);
+		when(entries.insertIfAbsent(any(), any(), any(), any(), eq(key), any(), any(), any())).thenReturn(0);
+		when(entries.findByIdempotencyKey(key)).thenReturn(Optional.of(first));
+		when(postings.findByJournalEntryId(first.getId())).thenReturn(lines);
+		return first;
+	}
+
+	private static Posting posting(LedgerAccount account, Direction direction, long kobo) {
+		return Posting.of(UUID.randomUUID(), account.getId(), direction, kobo, NOW);
 	}
 
 	private JournalEntryCommand purchase(String key) {
