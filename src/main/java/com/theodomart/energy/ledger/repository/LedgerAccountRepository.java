@@ -1,7 +1,9 @@
 package com.theodomart.energy.ledger.repository;
 
 import com.theodomart.energy.ledger.domain.LedgerAccount;
+import com.theodomart.energy.ledger.service.AccountType;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -10,6 +12,14 @@ import org.springframework.data.repository.query.Param;
 
 /** A plain Repository, not JpaRepository, so accounts have no delete methods to call (DESIGN 5.2 rule 4). */
 public interface LedgerAccountRepository extends Repository<LedgerAccount, UUID> {
+
+	Optional<LedgerAccount> findByTypeAndOwnerId(AccountType type, UUID ownerId);
+
+	/** Platform accounts: a separate method because "owner_id = NULL" is never true in SQL. */
+	Optional<LedgerAccount> findByTypeAndOwnerIdIsNull(AccountType type);
+
+	/** Flushes straight away, so the caller decides the order of balance updates, not Hibernate. */
+	LedgerAccount saveAndFlush(LedgerAccount account);
 
 	/**
 	 * Opens the account unless the owner already has one of this type, and returns how many rows it inserted. ON

@@ -1,5 +1,10 @@
 package com.theodomart.energy.ledger.domain;
 
+import com.theodomart.energy.common.domain.Money;
+import com.theodomart.energy.ledger.service.AccountType;
+import com.theodomart.energy.ledger.service.Direction;
+import com.theodomart.energy.ledger.service.InsufficientWalletBalanceException;
+import com.theodomart.energy.ledger.service.OwnerType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -81,6 +86,24 @@ public class LedgerAccount {
 					platform ? "A platform account has no owner" : "A " + type + " account needs an owner");
 		}
 		return new LedgerAccount(type, ownerId, now);
+	}
+
+	/**
+	 * Applies one entry's lines for this account, all at once so a wallet that is credited and debited in the same
+	 * entry is judged on the result. Balances are positive in the account's normal direction (DESIGN 6.3).
+	 *
+	 * @throws InsufficientWalletBalanceException if a wallet would go below zero: the only account with a floor
+	 * @throws ArithmeticException if the balance would overflow
+	 */
+	public void post(long debitsKobo, long creditsKobo, Instant now) {
+		long change = type.normalBalance() == Direction.CREDIT ? Math.subtractExact(creditsKobo, debitsKobo)
+				: Math.subtractExact(debitsKobo, creditsKobo);
+		long after = Math.addExact(balanceKobo, change);
+		if (type == AccountType.TENANT_WALLET && after < 0) {
+			throw new InsufficientWalletBalanceException(Money.ofKobo(balanceKobo), Money.ofKobo(-change));
+		}
+		this.balanceKobo = after;
+		this.updatedAt = Objects.requireNonNull(now, "now").truncatedTo(ChronoUnit.MICROS);
 	}
 
 	public UUID getId() {

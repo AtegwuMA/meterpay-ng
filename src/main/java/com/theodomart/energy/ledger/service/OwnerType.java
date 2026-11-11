@@ -1,4 +1,4 @@
-package com.theodomart.energy.ledger.domain;
+package com.theodomart.energy.ledger.service;
 
 public enum OwnerType {
 

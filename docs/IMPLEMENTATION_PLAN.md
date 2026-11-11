@@ -89,7 +89,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(ledger): make journal entries and postings immutable in the database`
 - [x] **M3-02a Existing tenant joins a unit.** `POST /tenancies/redeem` with an invite code, for a logged-in tenant. Same wallet, same locking and error rules as registering with a code (DESIGN §8.5).
   - Commit: `feat(property): let existing tenants redeem an invite`
-- [ ] **M3-03 Posting service.** `LedgerService.post(JournalEntryCommand)`: validates balance, applies postings, updates account balances with optimistic locking, rejects negative TENANT_WALLET.
+- [x] **M3-03 Posting service.** `LedgerService.post(JournalEntryCommand)`: validates balance, applies postings, updates account balances with optimistic locking, rejects negative TENANT_WALLET.
   - Done when: `LedgerInvariantTest.everyJournalEntryBalances` and insufficient balance tests pass.
   - Commit: `feat(ledger): post balanced journal entries atomically`
 - [ ] **M3-04 Ledger idempotency.** Duplicate `idempotency_key` returns the existing entry (catch unique violation, no check-then-insert).
