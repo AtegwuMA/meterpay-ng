@@ -85,7 +85,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(ledger): add double-entry ledger schema`
 - [x] **M3-02 Account provisioning.** Create TENANT_WALLET at tenant registration (one per user, DESIGN §17.2), LANDLORD_REVENUE on landlord registration, platform accounts seeded by migration. The migration also backfills both for users who registered before M3, idempotently (`INSERT ... SELECT ... ON CONFLICT DO NOTHING`).
   - Commit: `feat(ledger): provision accounts for tenants, landlords and platform`
-- [ ] **M3-01a Immutable ledger rows.** One migration: a `BEFORE UPDATE OR DELETE` trigger on `postings` and `journal_entries` that raises, so the database refuses changes instead of relying on ArchUnit rule 4. Tests prove UPDATE and DELETE are refused. Any test cleanup of these tables uses `TRUNCATE`, which row triggers do not fire on.
+- [x] **M3-01a Immutable ledger rows.** One migration: a `BEFORE UPDATE OR DELETE` trigger on `postings` and `journal_entries` that raises, so the database refuses changes instead of relying on ArchUnit rule 4. Tests prove UPDATE and DELETE are refused. Any test cleanup of these tables uses `TRUNCATE`, which row triggers do not fire on.
   - Commit: `feat(ledger): make journal entries and postings immutable in the database`
 - [ ] **M3-02a Existing tenant joins a unit.** `POST /tenancies/redeem` with an invite code, for a logged-in tenant. Same wallet, same locking and error rules as registering with a code (DESIGN §8.5).
   - Commit: `feat(property): let existing tenants redeem an invite`

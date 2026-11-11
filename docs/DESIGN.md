@@ -210,7 +210,7 @@ A landlord can withdraw a version only before it starts (not built yet, M7-04a).
 
 **Invariants (tested):**
 - Every journal entry has at least two postings and total debits equal total credits.
-- Postings and journal entries are never updated or deleted. Corrections are new reversing entries.
+- Postings and journal entries are never updated or deleted. Corrections are new reversing entries. The database enforces this with a statement trigger (V12) that refuses any UPDATE or DELETE on either table, so a script cannot break it either. TRUNCATE is still possible, and so is disabling the trigger as the table owner: production should run the application as a role that does not own these tables.
 - A TENANT_WALLET balance can never go below zero. Enforced in code under a row lock or optimistic version check, plus a DB CHECK on a constrained balance column.
 - `SUM(balance_kobo)` across accounts, signed by normal balance, is always zero. A scheduled job verifies this and raises an alert if not.
 

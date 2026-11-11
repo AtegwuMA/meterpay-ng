@@ -206,12 +206,61 @@ class LedgerSchemaIT extends IntegrationTest {
 	}
 
 	@Test
-	void anEntryWithPostingsCannotBeDeleted() {
+	void aPostingCannotBeChanged() {
 		UUID entry = entry("WALLET_TOPUP", "key-" + UUID.randomUUID());
 		posting(entry, account("TENANT", newUser("TENANT"), "TENANT_WALLET", 0), "CREDIT", 100);
 
-		assertRejected("postings_journal_entry_id_fkey",
+		assertRejected("ledger_immutable: UPDATE on postings",
+				() -> jdbc.update("UPDATE postings SET amount_kobo = 1 WHERE journal_entry_id = ?", entry));
+	}
+
+	@Test
+	void aPostingCannotBeDeleted() {
+		UUID entry = entry("WALLET_TOPUP", "key-" + UUID.randomUUID());
+		posting(entry, account("TENANT", newUser("TENANT"), "TENANT_WALLET", 0), "CREDIT", 100);
+
+		assertRejected("ledger_immutable: DELETE on postings",
+				() -> jdbc.update("DELETE FROM postings WHERE journal_entry_id = ?", entry));
+	}
+
+	@Test
+	void aJournalEntryCannotBeChanged() {
+		UUID entry = entry("WALLET_TOPUP", "key-" + UUID.randomUUID());
+
+		assertRejected("ledger_immutable: UPDATE on journal_entries",
+				() -> jdbc.update("UPDATE journal_entries SET description = 'edited' WHERE id = ?", entry));
+	}
+
+	@Test
+	void aJournalEntryCannotBeDeletedEvenWithoutPostings() {
+		UUID entry = entry("WALLET_TOPUP", "key-" + UUID.randomUUID());
+
+		assertRejected("ledger_immutable: DELETE on journal_entries",
 				() -> jdbc.update("DELETE FROM journal_entries WHERE id = ?", entry));
+	}
+
+	@Test
+	void aStatementThatMatchesNoRowsIsRefusedToo() {
+		assertRejected("ledger_immutable: DELETE on postings",
+				() -> jdbc.update("DELETE FROM postings WHERE id = ?", UUID.randomUUID()));
+	}
+
+	@Test
+	void truncateStillWorksForTestCleanup() {
+		posting(entry("WALLET_TOPUP", "key-" + UUID.randomUUID()),
+				account("TENANT", newUser("TENANT"), "TENANT_WALLET", 0), "CREDIT", 100);
+
+		// Rolled back with the test, like everything else in this class.
+		jdbc.execute("TRUNCATE postings, journal_entries");
+
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM postings", Integer.class)).isZero();
+	}
+
+	@Test
+	void accountBalancesCanStillChange() {
+		UUID wallet = account("TENANT", newUser("TENANT"), "TENANT_WALLET", 0);
+
+		assertThat(jdbc.update("UPDATE ledger_accounts SET balance_kobo = 500 WHERE id = ?", wallet)).isOne();
 	}
 
 	@Test
