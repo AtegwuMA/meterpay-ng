@@ -21,11 +21,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class LedgerServiceImpl implements LedgerService {
@@ -44,19 +49,62 @@ public class LedgerServiceImpl implements LedgerService {
 
 	private final PostingRepository postings;
 
+	/** Attempts in all, the first included, when an account changed under us (plan M3-05). */
+	static final int MAX_ATTEMPTS = 3;
+
+	/** The pause before attempt n is random, up to n times this, so racing retries spread out instead of colliding again. */
+	private static final long RETRY_PAUSE_STEP_MILLIS = 25;
+
 	private final Clock clock;
 
+	private final TransactionTemplate transactions;
+
 	public LedgerServiceImpl(LedgerAccountRepository accounts, JournalEntryRepository entries,
-			PostingRepository postings, Clock clock) {
+			PostingRepository postings, Clock clock, PlatformTransactionManager transactionManager) {
 		this.accounts = accounts;
 		this.entries = entries;
 		this.postings = postings;
 		this.clock = clock;
+		this.transactions = new TransactionTemplate(transactionManager);
 	}
 
+	/**
+	 * Called on its own, each attempt is a transaction of its own, and an attempt that loses a race on an account is
+	 * tried again, up to MAX_ATTEMPTS in all. Called inside a caller's transaction there is no retry here: the failed
+	 * attempt has already spoiled that transaction, so the caller must retry its whole unit of work (M5-03 does).
+	 */
 	@Override
-	@Transactional
 	public JournalEntryView post(JournalEntryCommand command) {
+		if (TransactionSynchronizationManager.isActualTransactionActive()) {
+			return postOnce(command);
+		}
+		for (int attempt = 1;; attempt++) {
+			try {
+				return transactions.execute(status -> postOnce(command));
+			}
+			catch (OptimisticLockingFailureException ex) {
+				if (attempt == MAX_ATTEMPTS) {
+					log.warn("Journal entry gave up after {} attempts: key={}", attempt, command.idempotencyKey());
+					throw ex;
+				}
+				log.info("Journal entry lost a race on an account, retrying: attempt={} key={}", attempt,
+						command.idempotencyKey());
+				pauseBefore(attempt + 1);
+			}
+		}
+	}
+
+	private static void pauseBefore(int attempt) {
+		try {
+			Thread.sleep(ThreadLocalRandom.current().nextLong(RETRY_PAUSE_STEP_MILLIS * attempt));
+		}
+		catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+			throw new IllegalStateException("Interrupted while waiting to retry a journal entry", ex);
+		}
+	}
+
+	private JournalEntryView postOnce(JournalEntryCommand command) {
 		Instant now = clock.instant();
 		JournalEntry entry = JournalEntry.create(command.type(), command.idempotencyKey(), command.referenceType(),
 				command.referenceId(), command.description(), command.lines(), now);

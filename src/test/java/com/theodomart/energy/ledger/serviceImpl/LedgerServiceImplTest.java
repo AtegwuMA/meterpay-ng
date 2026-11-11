@@ -3,10 +3,12 @@ package com.theodomart.energy.ledger.serviceImpl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +38,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.PlatformTransactionManager;
 
 class LedgerServiceImplTest {
 
@@ -47,8 +52,10 @@ class LedgerServiceImplTest {
 
 	private final PostingRepository postings = mock();
 
+	private final PlatformTransactionManager transactionManager = mock();
+
 	private final LedgerServiceImpl ledger = new LedgerServiceImpl(accounts, entries, postings,
-			Clock.fixed(NOW, ZoneOffset.UTC));
+			Clock.fixed(NOW, ZoneOffset.UTC), transactionManager);
 
 	private final UUID tenant = UUID.randomUUID();
 
@@ -212,6 +219,61 @@ class LedgerServiceImplTest {
 		when(entries.insertIfAbsent(any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
 
 		assertThatThrownBy(() -> ledger.post(purchase("ghost"))).isInstanceOf(IllegalStateException.class);
+	}
+
+	@Test
+	void anEntryThatLosesARaceOnAnAccountIsTriedAgainInANewTransaction() {
+		freshWalletOnEachAttempt();
+		when(accounts.saveAndFlush(argThat(LedgerServiceImplTest::isWallet))).thenThrow(lostRace())
+			.thenAnswer(call -> call.getArgument(0));
+
+		ledger.post(purchase("race-1"));
+
+		verify(entries, times(2)).insertIfAbsent(any(), any(), any(), any(), eq("race-1"), any(), any(), any());
+		verify(transactionManager, times(2)).getTransaction(any());
+		verify(transactionManager).rollback(any());
+	}
+
+	@Test
+	void itGivesUpAfterThreeAttempts() {
+		freshWalletOnEachAttempt();
+		when(accounts.saveAndFlush(argThat(LedgerServiceImplTest::isWallet))).thenThrow(lostRace());
+
+		assertThatThrownBy(() -> ledger.post(purchase("race-2"))).isInstanceOf(OptimisticLockingFailureException.class);
+
+		assertThat(LedgerServiceImpl.MAX_ATTEMPTS).isEqualTo(3);
+		verify(entries, times(3)).insertIfAbsent(any(), any(), any(), any(), eq("race-2"), any(), any(), any());
+	}
+
+	@Test
+	void aShortWalletIsNotRetried() {
+		JournalEntryCommand tooMuch = new JournalEntryCommand(EntryType.ENERGY_PURCHASE, "short", null, null, null,
+				List.of(PostingLine.debit(AccountRef.tenantWallet(tenant), Money.ofKobo(600_000)),
+						PostingLine.credit(AccountRef.landlordRevenue(landlord), Money.ofKobo(600_000))));
+
+		assertThatThrownBy(() -> ledger.post(tooMuch)).isInstanceOf(InsufficientWalletBalanceException.class);
+
+		verify(entries, times(1)).insertIfAbsent(any(), any(), any(), any(), eq("short"), any(), any(), any());
+	}
+
+	/**
+	 * Each real attempt runs in a new transaction and reads the wallet again, so a failed attempt's change never
+	 * carries over. Handing back the same object every time would let it carry over and fake a short wallet.
+	 */
+	private void freshWalletOnEachAttempt() {
+		when(accounts.findByTypeAndOwnerId(AccountType.TENANT_WALLET, tenant)).thenAnswer(call -> {
+			LedgerAccount loaded = LedgerAccount.open(AccountType.TENANT_WALLET, tenant, NOW);
+			loaded.post(0, 500_000, NOW);
+			return Optional.of(loaded);
+		});
+	}
+
+	private static boolean isWallet(LedgerAccount account) {
+		return account != null && account.getType() == AccountType.TENANT_WALLET;
+	}
+
+	private ObjectOptimisticLockingFailureException lostRace() {
+		return new ObjectOptimisticLockingFailureException(LedgerAccount.class, wallet.getId());
 	}
 
 	private JournalEntry alreadyPosted(String key, List<Posting> lines) {

@@ -94,7 +94,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(ledger): post balanced journal entries atomically`
 - [x] **M3-04 Ledger idempotency.** Duplicate `idempotency_key` returns the existing entry, decided by the unique constraint with `INSERT ... ON CONFLICT DO NOTHING`, no check-then-insert. Not by catching the violation: posting joins the caller's transaction, and in Postgres a failed insert aborts it. The same key for a different entry is 422 `IDEMPOTENCY_KEY_REUSED`.
   - Commit: `feat(ledger): make journal posting idempotent via unique key`
-- [ ] **M3-05 Concurrency test.** `ConcurrentPurchaseIT.parallelPurchasesNeverOverdrawWallet` style test at ledger level: 20 threads debit one wallet. Add retry on optimistic lock failure (max 3).
+- [x] **M3-05 Concurrency test.** `ConcurrentPurchaseIT.parallelPurchasesNeverOverdrawWallet` style test at ledger level: 20 threads debit one wallet. Add retry on optimistic lock failure (max 3).
   - Commit: `test(ledger): prove concurrent debits never overdraw a wallet`
 - [ ] **M3-06 Wallet read endpoints.** `GET /wallet`, `GET /wallet/transactions`.
   - Commit: `feat(ledger): expose tenant wallet balance and history`
