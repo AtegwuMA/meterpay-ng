@@ -105,6 +105,16 @@ public class TenancyServiceImpl implements TenancyService {
 		return toView(tenancy);
 	}
 
+	// One path for both ways in, so the locking and the error rules cannot drift apart.
+	@Override
+	@Transactional
+	public TenancyView joinUnit(UUID tenantId, String code) {
+		TenancyView tenancy = redeemInvite(code, tenantId);
+		log.info("Existing tenant joined a unit: tenancyId={} unitId={} tenantId={}", tenancy.id(), tenancy.unitId(),
+				tenantId);
+		return tenancy;
+	}
+
 	@Override
 	@Transactional
 	public TenancyView endTenancy(UUID landlordId, UUID unitId) {

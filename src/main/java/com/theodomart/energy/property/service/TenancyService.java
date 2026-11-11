@@ -21,6 +21,15 @@ public interface TenancyService {
 	 */
 	TenancyView redeemInvite(String code, UUID tenantId);
 
+	/**
+	 * For a tenant who already has an account: the same rules as {@link #redeemInvite}, in a transaction of its own.
+	 * The tenant keeps their wallet, because it belongs to the user, not to a tenancy (DESIGN 17.2).
+	 *
+	 * @throws InvalidInviteCodeException for an unknown, used, cancelled or expired code, all alike
+	 * @throws UnitOccupiedException if the unit became occupied in the meantime
+	 */
+	TenancyView joinUnit(UUID tenantId, String code);
+
 	/** @throws com.theodomart.energy.common.error.ResourceNotFoundException if no active tenancy exists */
 	TenancyView endTenancy(UUID landlordId, UUID unitId);
 

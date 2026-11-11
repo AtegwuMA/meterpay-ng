@@ -87,7 +87,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(ledger): provision accounts for tenants, landlords and platform`
 - [x] **M3-01a Immutable ledger rows.** One migration: a `BEFORE UPDATE OR DELETE` trigger on `postings` and `journal_entries` that raises, so the database refuses changes instead of relying on ArchUnit rule 4. Tests prove UPDATE and DELETE are refused. Any test cleanup of these tables uses `TRUNCATE`, which row triggers do not fire on.
   - Commit: `feat(ledger): make journal entries and postings immutable in the database`
-- [ ] **M3-02a Existing tenant joins a unit.** `POST /tenancies/redeem` with an invite code, for a logged-in tenant. Same wallet, same locking and error rules as registering with a code (DESIGN §8.5).
+- [x] **M3-02a Existing tenant joins a unit.** `POST /tenancies/redeem` with an invite code, for a logged-in tenant. Same wallet, same locking and error rules as registering with a code (DESIGN §8.5).
   - Commit: `feat(property): let existing tenants redeem an invite`
 - [ ] **M3-03 Posting service.** `LedgerService.post(JournalEntryCommand)`: validates balance, applies postings, updates account balances with optimistic locking, rejects negative TENANT_WALLET.
   - Done when: `LedgerInvariantTest.everyJournalEntryBalances` and insufficient balance tests pass.
