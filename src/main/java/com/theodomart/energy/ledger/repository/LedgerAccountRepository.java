@@ -2,9 +2,13 @@ package com.theodomart.energy.ledger.repository;
 
 import com.theodomart.energy.ledger.domain.LedgerAccount;
 import com.theodomart.energy.ledger.service.AccountType;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
@@ -13,10 +17,22 @@ import org.springframework.data.repository.query.Param;
 /** A plain Repository, not JpaRepository, so accounts have no delete methods to call (DESIGN 5.2 rule 4). */
 public interface LedgerAccountRepository extends Repository<LedgerAccount, UUID> {
 
-	Optional<LedgerAccount> findByTypeAndOwnerId(AccountType type, UUID ownerId);
+	/** Only the id, so nothing is loaded before the row is locked. */
+	@Query("SELECT a.id FROM LedgerAccount a WHERE a.type = :type AND a.ownerId = :ownerId")
+	Optional<UUID> findIdByTypeAndOwnerId(@Param("type") AccountType type, @Param("ownerId") UUID ownerId);
 
 	/** Platform accounts: a separate method because "owner_id = NULL" is never true in SQL. */
-	Optional<LedgerAccount> findByTypeAndOwnerIdIsNull(AccountType type);
+	@Query("SELECT a.id FROM LedgerAccount a WHERE a.type = :type AND a.ownerId IS NULL")
+	Optional<UUID> findIdByTypeAndOwnerIdIsNull(@Param("type") AccountType type);
+
+	/**
+	 * SELECT ... FOR UPDATE ORDER BY id: Postgres locks the rows in the sorted order, so every posting takes its locks
+	 * in one global order and two postings can never each hold a row the other needs. The balances read here are
+	 * current, because nobody else can change these rows until this transaction ends.
+	 */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("SELECT a FROM LedgerAccount a WHERE a.id IN :ids ORDER BY a.id")
+	List<LedgerAccount> lockAllInIdOrder(@Param("ids") Collection<UUID> ids);
 
 	/** Flushes straight away, so the caller decides the order of balance updates, not Hibernate. */
 	LedgerAccount saveAndFlush(LedgerAccount account);

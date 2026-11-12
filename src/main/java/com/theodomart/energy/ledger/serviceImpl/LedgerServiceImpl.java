@@ -16,6 +16,8 @@ import com.theodomart.energy.ledger.service.LedgerService;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,7 +26,7 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
@@ -69,8 +71,9 @@ public class LedgerServiceImpl implements LedgerService {
 	}
 
 	/**
-	 * Called on its own, each attempt is a transaction of its own, and an attempt that loses a race on an account is
-	 * tried again, up to MAX_ATTEMPTS in all. Called inside a caller's transaction there is no retry here: the failed
+	 * Accounts are locked, so postings over the same accounts wait their turn rather than fail. Called on its own,
+	 * each attempt is a transaction of its own, and an attempt that still fails on concurrency (a lost optimistic
+	 * check or a deadlock the database broke) is tried again, up to MAX_ATTEMPTS in all. Called inside a caller's transaction there is no retry here: the failed
 	 * attempt has already spoiled that transaction, so the caller must retry its whole unit of work (M5-03 does).
 	 */
 	@Override
@@ -82,7 +85,7 @@ public class LedgerServiceImpl implements LedgerService {
 			try {
 				return transactions.execute(status -> postOnce(command));
 			}
-			catch (OptimisticLockingFailureException ex) {
+			catch (ConcurrencyFailureException ex) {
 				if (attempt == MAX_ATTEMPTS) {
 					log.warn("Journal entry gave up after {} attempts: key={}", attempt, command.idempotencyKey());
 					throw ex;
@@ -109,10 +112,17 @@ public class LedgerServiceImpl implements LedgerService {
 		JournalEntry entry = JournalEntry.create(command.type(), command.idempotencyKey(), command.referenceType(),
 				command.referenceId(), command.description(), command.lines(), now);
 
-		Map<AccountRef, LedgerAccount> byRef = new LinkedHashMap<>();
+		// Ids first, without loading anything, then every account locked in id order, and only then are balances
+		// read. Reading before locking would let a posting that waited decide on a balance that has since changed.
+		Map<AccountRef, UUID> idByRef = new LinkedHashMap<>();
+		command.lines().forEach(line -> idByRef.computeIfAbsent(line.account(), this::resolveId));
+		Map<UUID, LedgerAccount> lockedById = new HashMap<>();
+		accounts.lockAllInIdOrder(new HashSet<>(idByRef.values()))
+			.forEach(account -> lockedById.put(account.getId(), account));
+
 		Map<LedgerAccount, long[]> totals = new LinkedHashMap<>();
 		List<Posting> lines = command.lines().stream().map(line -> {
-			LedgerAccount account = byRef.computeIfAbsent(line.account(), this::load);
+			LedgerAccount account = lockedById.get(idByRef.get(line.account()));
 			long[] debitsAndCredits = totals.computeIfAbsent(account, ignored -> new long[2]);
 			int side = line.direction() == Direction.DEBIT ? 0 : 1;
 			debitsAndCredits[side] = Math.addExact(debitsAndCredits[side], line.amount().kobo());
@@ -129,9 +139,8 @@ public class LedgerServiceImpl implements LedgerService {
 		}
 		postings.saveAll(lines);
 
-		// Balances one at a time in a fixed order. Each UPDATE holds its row until commit, so two entries that touch
-		// the same accounts in opposite orders could otherwise deadlock. Each flush writes only this one account,
-		// because no other account has changed yet.
+		// Balances one at a time, in the same order the rows were locked. Each flush writes only this one account,
+		// because no other account has changed yet. @Version stays as a backstop if a row was ever changed unlocked.
 		for (LedgerAccount account : totals.keySet().stream().sorted(UPDATE_ORDER).toList()) {
 			long[] debitsAndCredits = totals.get(account);
 			account.post(debitsAndCredits[0], debitsAndCredits[1], now);
@@ -174,9 +183,9 @@ public class LedgerServiceImpl implements LedgerService {
 				entry.getReferenceType(), entry.getReferenceId(), entry.getPostedAt());
 	}
 
-	private LedgerAccount load(AccountRef ref) {
-		return (ref.ownerId() == null ? accounts.findByTypeAndOwnerIdIsNull(ref.type())
-				: accounts.findByTypeAndOwnerId(ref.type(), ref.ownerId()))
+	private UUID resolveId(AccountRef ref) {
+		return (ref.ownerId() == null ? accounts.findIdByTypeAndOwnerIdIsNull(ref.type())
+				: accounts.findIdByTypeAndOwnerId(ref.type(), ref.ownerId()))
 			// Every user gets their accounts at registration and the platform's are seeded, so this is a bug.
 			.orElseThrow(() -> new IllegalStateException("No " + ref.type() + " account for owner " + ref.ownerId()));
 	}

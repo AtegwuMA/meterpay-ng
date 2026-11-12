@@ -10,7 +10,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
-import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
@@ -41,8 +41,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return problem(code, ex.getMessage(), request, traceId);
 	}
 
-	@ExceptionHandler(OptimisticLockingFailureException.class)
-	ResponseEntity<Object> handleOptimisticLock(OptimisticLockingFailureException ex, HttpServletRequest request) {
+	// The common parent of a lost optimistic check, a lock timeout and a deadlock the database broke: all mean "try
+	// again", and none may leak SQL to the client.
+	@ExceptionHandler(ConcurrencyFailureException.class)
+	ResponseEntity<Object> handleConcurrencyFailure(ConcurrencyFailureException ex, HttpServletRequest request) {
 		String traceId = traceId();
 		log.warn("Concurrent modification: traceId={}", traceId);
 		return problem(ErrorCode.CONCURRENT_MODIFICATION,

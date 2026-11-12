@@ -1,7 +1,6 @@
 package com.theodomart.energy.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.theodomart.energy.IntegrationTest;
 import com.theodomart.energy.common.domain.Money;
@@ -27,7 +26,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -111,18 +110,19 @@ class ConcurrentLedgerIT extends IntegrationTest {
 		assertThat(succeeded + insufficient + gaveUp).as("every attempt has exactly one outcome").isEqualTo(THREADS);
 		assertThat(balance).as("never below zero").isGreaterThanOrEqualTo(0);
 		assertThat(balance).as("exactly the debits that succeeded").isEqualTo(PRICE * (AFFORDABLE - succeeded));
-		assertThat(succeeded).as("no more than the wallet could pay for").isBetween(1, AFFORDABLE);
-		if (insufficient > 0) {
-			// The balance only falls in this test, so a refusal for lack of funds must mean the funds really ran out.
-			assertThat(balance).as("refused for lack of funds while money remained").isLessThan(PRICE);
-		}
+		// With the wallet row locked, debits queue instead of failing (M3-05a), so the outcome is exact: the wallet
+		// pays for exactly what it can afford and refuses the rest for lack of funds, and nothing gives up.
+		assertThat(gaveUp).as("nothing should give up now that debits queue").isZero();
+		assertThat(succeeded).as("everything the wallet could pay for").isEqualTo(AFFORDABLE);
+		assertThat(insufficient).as("the rest refused for lack of funds").isEqualTo(THREADS - AFFORDABLE);
+		assertThat(balance).isZero();
 		assertThat(landlordBalance()).isEqualTo(PRICE * succeeded);
 		assertThat(debitEntries()).isEqualTo(succeeded);
 		assertTheBooksStillBalance();
 	}
 
 	@Test
-	void anEntryThatLosesARaceIsRetriedAndSucceeds() throws Exception {
+	void aSecondDebitWaitsForTheFirstInsteadOfFailing() throws Exception {
 		long debited = raceAgainstAnOpenTransaction(() -> {
 			ledger.post(debitCommand());
 			return true;
@@ -133,14 +133,15 @@ class ConcurrentLedgerIT extends IntegrationTest {
 	}
 
 	@Test
-	void insideACallersTransactionTheConflictIsLeftToTheCaller() throws Exception {
+	void insideACallersTransactionTheSecondDebitWaitsAndSucceedsToo() throws Exception {
+		// Before M3-05a this failed with an optimistic lock error, because there was no retry inside a caller's
+		// transaction. With the row locked it simply waits, so a purchase never has to retry for this.
 		long debited = raceAgainstAnOpenTransaction(() -> {
-			assertThatThrownBy(() -> transaction.executeWithoutResult(status -> ledger.post(debitCommand())))
-				.isInstanceOf(OptimisticLockingFailureException.class);
+			transaction.executeWithoutResult(status -> ledger.post(debitCommand()));
 			return true;
 		});
 
-		assertThat(debited).as("only the first debit went through").isEqualTo(PRICE);
+		assertThat(debited).isEqualTo(2 * PRICE);
 		assertTheBooksStillBalance();
 	}
 
@@ -195,7 +196,7 @@ class ConcurrentLedgerIT extends IntegrationTest {
 		catch (InsufficientWalletBalanceException ex) {
 			return Outcome.INSUFFICIENT_FUNDS;
 		}
-		catch (OptimisticLockingFailureException ex) {
+		catch (ConcurrencyFailureException ex) {
 			return Outcome.GAVE_UP_AFTER_RETRIES;
 		}
 	}

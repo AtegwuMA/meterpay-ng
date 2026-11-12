@@ -31,14 +31,18 @@ import com.theodomart.energy.ledger.service.PostingLine;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -69,6 +73,8 @@ class LedgerServiceImplTest {
 
 	private LedgerAccount fee;
 
+	private final Map<UUID, LedgerAccount> registered = new HashMap<>();
+
 	@BeforeEach
 	void accountsExist() {
 		wallet = account(AccountType.TENANT_WALLET, tenant);
@@ -77,6 +83,10 @@ class LedgerServiceImplTest {
 		vat = account(AccountType.VAT_PAYABLE, null);
 		fee = account(AccountType.PLATFORM_FEE_REVENUE, null);
 		when(entries.insertIfAbsent(any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+		when(accounts.lockAllInIdOrder(any())).thenAnswer(call -> {
+			Collection<UUID> ids = call.getArgument(0);
+			return ids.stream().map(registered::get).sorted(LedgerServiceImpl.UPDATE_ORDER).toList();
+		});
 	}
 
 	@Test
@@ -223,11 +233,9 @@ class LedgerServiceImplTest {
 
 	@Test
 	void anEntryThatLosesARaceOnAnAccountIsTriedAgainInANewTransaction() {
-		freshWalletOnEachAttempt();
-		when(accounts.saveAndFlush(argThat(LedgerServiceImplTest::isWallet))).thenThrow(lostRace())
-			.thenAnswer(call -> call.getArgument(0));
+		when(accounts.saveAndFlush(wallet)).thenThrow(lostRace()).thenReturn(wallet);
 
-		ledger.post(purchase("race-1"));
+		ledger.post(topUp("race-1"));
 
 		verify(entries, times(2)).insertIfAbsent(any(), any(), any(), any(), eq("race-1"), any(), any(), any());
 		verify(transactionManager, times(2)).getTransaction(any());
@@ -235,14 +243,32 @@ class LedgerServiceImplTest {
 	}
 
 	@Test
-	void itGivesUpAfterThreeAttempts() {
-		freshWalletOnEachAttempt();
-		when(accounts.saveAndFlush(argThat(LedgerServiceImplTest::isWallet))).thenThrow(lostRace());
+	void aDeadlockTheDatabaseBrokeIsRetriedToo() {
+		when(accounts.saveAndFlush(wallet)).thenThrow(new PessimisticLockingFailureException("deadlock detected"))
+			.thenReturn(wallet);
 
-		assertThatThrownBy(() -> ledger.post(purchase("race-2"))).isInstanceOf(OptimisticLockingFailureException.class);
+		ledger.post(topUp("deadlock-1"));
+
+		verify(entries, times(2)).insertIfAbsent(any(), any(), any(), any(), eq("deadlock-1"), any(), any(), any());
+	}
+
+	@Test
+	void itGivesUpAfterThreeAttempts() {
+		when(accounts.saveAndFlush(wallet)).thenThrow(lostRace());
+
+		assertThatThrownBy(() -> ledger.post(topUp("race-2"))).isInstanceOf(OptimisticLockingFailureException.class);
 
 		assertThat(LedgerServiceImpl.MAX_ATTEMPTS).isEqualTo(3);
 		verify(entries, times(3)).insertIfAbsent(any(), any(), any(), any(), eq("race-2"), any(), any(), any());
+	}
+
+	@Test
+	void accountsAreLockedBeforeTheEntryIsWrittenOrAnyBalanceRead() {
+		ledger.post(purchase("locked-first"));
+
+		InOrder order = inOrder(accounts, entries);
+		order.verify(accounts).lockAllInIdOrder(argThat(ids -> ids.size() == 4));
+		order.verify(entries).insertIfAbsent(any(), any(), any(), any(), eq("locked-first"), any(), any(), any());
 	}
 
 	@Test
@@ -254,22 +280,6 @@ class LedgerServiceImplTest {
 		assertThatThrownBy(() -> ledger.post(tooMuch)).isInstanceOf(InsufficientWalletBalanceException.class);
 
 		verify(entries, times(1)).insertIfAbsent(any(), any(), any(), any(), eq("short"), any(), any(), any());
-	}
-
-	/**
-	 * Each real attempt runs in a new transaction and reads the wallet again, so a failed attempt's change never
-	 * carries over. Handing back the same object every time would let it carry over and fake a short wallet.
-	 */
-	private void freshWalletOnEachAttempt() {
-		when(accounts.findByTypeAndOwnerId(AccountType.TENANT_WALLET, tenant)).thenAnswer(call -> {
-			LedgerAccount loaded = LedgerAccount.open(AccountType.TENANT_WALLET, tenant, NOW);
-			loaded.post(0, 500_000, NOW);
-			return Optional.of(loaded);
-		});
-	}
-
-	private static boolean isWallet(LedgerAccount account) {
-		return account != null && account.getType() == AccountType.TENANT_WALLET;
 	}
 
 	private ObjectOptimisticLockingFailureException lostRace() {
@@ -295,6 +305,12 @@ class LedgerServiceImplTest {
 		return Posting.of(UUID.randomUUID(), account.getId(), direction, kobo, NOW);
 	}
 
+	private JournalEntryCommand topUp(String key) {
+		return new JournalEntryCommand(EntryType.WALLET_TOPUP, key, null, null, null,
+				List.of(PostingLine.debit(AccountRef.vatPayable(), Money.ofKobo(1_000)),
+						PostingLine.credit(AccountRef.tenantWallet(tenant), Money.ofKobo(1_000))));
+	}
+
 	private JournalEntryCommand purchase(String key) {
 		return new JournalEntryCommand(EntryType.ENERGY_PURCHASE, key, null, null, "Energy purchase",
 				List.of(PostingLine.debit(AccountRef.tenantWallet(tenant), Money.ofKobo(200_000)),
@@ -305,11 +321,12 @@ class LedgerServiceImplTest {
 
 	private LedgerAccount account(AccountType type, UUID owner) {
 		LedgerAccount account = LedgerAccount.open(type, owner, NOW);
+		registered.put(account.getId(), account);
 		if (owner == null) {
-			when(accounts.findByTypeAndOwnerIdIsNull(type)).thenReturn(Optional.of(account));
+			when(accounts.findIdByTypeAndOwnerIdIsNull(type)).thenReturn(Optional.of(account.getId()));
 		}
 		else {
-			when(accounts.findByTypeAndOwnerId(type, owner)).thenReturn(Optional.of(account));
+			when(accounts.findIdByTypeAndOwnerId(type, owner)).thenReturn(Optional.of(account.getId()));
 		}
 		return account;
 	}

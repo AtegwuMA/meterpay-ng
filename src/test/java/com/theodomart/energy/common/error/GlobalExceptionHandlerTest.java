@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.MediaType;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.web.servlet.MockMvc;
@@ -140,6 +141,14 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
+	void aDeadlockTheDatabaseBrokeAlsoReturns409WithoutTheSql() throws Exception {
+		mvc.perform(post("/test/deadlock"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code").value("CONCURRENT_MODIFICATION"))
+			.andExpect(content().string(not(containsString("deadlock detected"))));
+	}
+
+	@Test
 	void businessRuleViolationReturns422WithItsDetail() throws Exception {
 		mvc.perform(post("/test/purchase-too-big"))
 			.andExpect(status().isUnprocessableContent())
@@ -226,6 +235,11 @@ class GlobalExceptionHandlerTest {
 		@PostMapping("/test/concurrent")
 		String concurrent() {
 			throw new ObjectOptimisticLockingFailureException("LedgerAccount", "6f1c");
+		}
+
+		@PostMapping("/test/deadlock")
+		String deadlock() {
+			throw new PessimisticLockingFailureException("ERROR: deadlock detected on ledger_accounts");
 		}
 
 		@PostMapping("/test/purchase-too-big")
