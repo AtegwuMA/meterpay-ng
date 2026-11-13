@@ -134,6 +134,10 @@ public class LedgerAccount {
 		return createdAt;
 	}
 
+	public Instant getUpdatedAt() {
+		return updatedAt;
+	}
+
 	@Override
 	public boolean equals(Object o) {
 		if (this == o) {

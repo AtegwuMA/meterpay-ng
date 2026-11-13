@@ -1,6 +1,7 @@
 package com.theodomart.energy.ledger.service;
 
 import java.util.UUID;
+import org.springframework.data.domain.Page;
 
 public interface LedgerService {
 
@@ -18,6 +19,12 @@ public interface LedgerService {
 	 * money movement (type, reference or lines)
 	 */
 	JournalEntryView post(JournalEntryCommand command);
+
+	/** The tenant's own wallet. Every tenant has one from registration (M3-02). */
+	WalletView wallet(UUID tenantId);
+
+	/** Newest first, one row per entry that moved the wallet. */
+	Page<WalletTransactionView> walletTransactions(UUID tenantId, int page, int size);
 
 	// Opening an account must happen in the same transaction as creating its user, so a user can never exist without
 	// the account the ledger needs. Both methods refuse to run outside a transaction, and do nothing if it exists.

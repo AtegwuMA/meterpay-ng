@@ -20,6 +20,7 @@ import com.theodomart.energy.ledger.domain.Posting;
 import com.theodomart.energy.ledger.repository.JournalEntryRepository;
 import com.theodomart.energy.ledger.repository.LedgerAccountRepository;
 import com.theodomart.energy.ledger.repository.PostingRepository;
+import com.theodomart.energy.ledger.repository.WalletLine;
 import com.theodomart.energy.ledger.service.AccountRef;
 import com.theodomart.energy.ledger.service.AccountType;
 import com.theodomart.energy.ledger.service.Direction;
@@ -28,6 +29,8 @@ import com.theodomart.energy.ledger.service.InsufficientWalletBalanceException;
 import com.theodomart.energy.ledger.service.JournalEntryCommand;
 import com.theodomart.energy.ledger.service.JournalEntryView;
 import com.theodomart.energy.ledger.service.PostingLine;
+import com.theodomart.energy.ledger.service.WalletTransactionView;
+import com.theodomart.energy.ledger.service.WalletView;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -43,6 +46,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -280,6 +284,39 @@ class LedgerServiceImplTest {
 		assertThatThrownBy(() -> ledger.post(tooMuch)).isInstanceOf(InsufficientWalletBalanceException.class);
 
 		verify(entries, times(1)).insertIfAbsent(any(), any(), any(), any(), eq("short"), any(), any(), any());
+	}
+
+	@Test
+	void theWalletShowsItsBalance() {
+		when(accounts.findByTypeAndOwnerId(AccountType.TENANT_WALLET, tenant)).thenReturn(Optional.of(wallet));
+
+		WalletView view = ledger.wallet(tenant);
+
+		assertThat(view.balanceKobo()).isEqualTo(500_000);
+		assertThat(view.currency()).isEqualTo("NGN");
+		assertThat(view.updatedAt()).isEqualTo(NOW);
+	}
+
+	@Test
+	void historyTurnsEachEntrysNetIntoADirectionAndAPositiveAmount() {
+		when(accounts.findByTypeAndOwnerId(AccountType.TENANT_WALLET, tenant)).thenReturn(Optional.of(wallet));
+		UUID intent = UUID.randomUUID();
+		WalletLine in = new WalletLine(UUID.randomUUID(), EntryType.WALLET_TOPUP, "PAYMENT_INTENT", intent, "Top-up", NOW,
+				500_000L);
+		WalletLine out = new WalletLine(UUID.randomUUID(), EntryType.ENERGY_PURCHASE, null, null, null, NOW, -200_000L);
+		when(postings.findHistory(eq(wallet.getId()), any())).thenReturn(new PageImpl<>(List.of(out, in)));
+
+		List<WalletTransactionView> history = ledger.walletTransactions(tenant, 0, 20).getContent();
+
+		assertThat(history).extracting(WalletTransactionView::direction).containsExactly(Direction.DEBIT, Direction.CREDIT);
+		assertThat(history).extracting(WalletTransactionView::amountKobo).containsExactly(200_000L, 500_000L);
+		assertThat(history.get(1).referenceId()).isEqualTo(intent);
+	}
+
+	@Test
+	void aTenantWithoutAWalletIsABug() {
+		assertThatThrownBy(() -> ledger.wallet(UUID.randomUUID())).isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("no wallet");
 	}
 
 	private ObjectOptimisticLockingFailureException lostRace() {

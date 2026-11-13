@@ -401,6 +401,8 @@ All endpoints under `/api/v1`. JSON. Pagination via `page` (default 0) and `size
 | GET | /wallet/top-ups/{id} | TENANT (owner) |
 | POST | /webhooks/paystack | Paystack (signature verified) |
 
+- `/wallet` returns the caller's own wallet: `balanceKobo`, `currency`, `updatedAt`. `/wallet/transactions` is paged (default size 20), newest first by `postedAt` then entry id, one row per journal entry that moved the wallet: `entryId`, `type`, `direction` (CREDIT is money in), `amountKobo` (positive), `referenceType`, `referenceId`, `description`, `postedAt`. An entry with several wallet lines shows once, with its net. There is no tenant id in either path: the wallet is the token's.
+
 **Vending**
 | Method | Path | Role |
 |---|---|---|

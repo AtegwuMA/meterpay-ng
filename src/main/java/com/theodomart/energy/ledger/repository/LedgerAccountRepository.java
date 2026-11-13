@@ -17,6 +17,9 @@ import org.springframework.data.repository.query.Param;
 /** A plain Repository, not JpaRepository, so accounts have no delete methods to call (DESIGN 5.2 rule 4). */
 public interface LedgerAccountRepository extends Repository<LedgerAccount, UUID> {
 
+	/** For reading only, without a lock. Posting never uses this: it locks first, then reads. */
+	Optional<LedgerAccount> findByTypeAndOwnerId(AccountType type, UUID ownerId);
+
 	/** Only the id, so nothing is loaded before the row is locked. */
 	@Query("SELECT a.id FROM LedgerAccount a WHERE a.type = :type AND a.ownerId = :ownerId")
 	Optional<UUID> findIdByTypeAndOwnerId(@Param("type") AccountType type, @Param("ownerId") UUID ownerId);

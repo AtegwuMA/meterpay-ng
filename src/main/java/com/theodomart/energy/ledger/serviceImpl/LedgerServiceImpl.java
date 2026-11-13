@@ -7,12 +7,15 @@ import com.theodomart.energy.ledger.domain.Posting;
 import com.theodomart.energy.ledger.repository.JournalEntryRepository;
 import com.theodomart.energy.ledger.repository.LedgerAccountRepository;
 import com.theodomart.energy.ledger.repository.PostingRepository;
+import com.theodomart.energy.ledger.repository.WalletLine;
 import com.theodomart.energy.ledger.service.AccountRef;
 import com.theodomart.energy.ledger.service.AccountType;
 import com.theodomart.energy.ledger.service.Direction;
 import com.theodomart.energy.ledger.service.JournalEntryCommand;
 import com.theodomart.energy.ledger.service.JournalEntryView;
 import com.theodomart.energy.ledger.service.LedgerService;
+import com.theodomart.energy.ledger.service.WalletTransactionView;
+import com.theodomart.energy.ledger.service.WalletView;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
@@ -27,6 +30,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
@@ -95,6 +100,32 @@ public class LedgerServiceImpl implements LedgerService {
 				pauseBefore(attempt + 1);
 			}
 		}
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public WalletView wallet(UUID tenantId) {
+		LedgerAccount wallet = walletOf(tenantId);
+		return new WalletView(wallet.getBalanceKobo(), wallet.getCurrency(), wallet.getUpdatedAt());
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Page<WalletTransactionView> walletTransactions(UUID tenantId, int page, int size) {
+		LedgerAccount wallet = walletOf(tenantId);
+		return postings.findHistory(wallet.getId(), PageRequest.of(page, size)).map(LedgerServiceImpl::toWalletView);
+	}
+
+	private LedgerAccount walletOf(UUID tenantId) {
+		return accounts.findByTypeAndOwnerId(AccountType.TENANT_WALLET, tenantId)
+			// Every tenant gets a wallet at registration, and V11 backfilled earlier ones, so this is a bug.
+			.orElseThrow(() -> new IllegalStateException("Tenant " + tenantId + " has no wallet"));
+	}
+
+	private static WalletTransactionView toWalletView(WalletLine line) {
+		long net = line.netCreditKobo();
+		return new WalletTransactionView(line.entryId(), line.type(), net >= 0 ? Direction.CREDIT : Direction.DEBIT,
+				Math.abs(net), line.referenceType(), line.referenceId(), line.description(), line.postedAt());
 	}
 
 	private static void pauseBefore(int attempt) {
