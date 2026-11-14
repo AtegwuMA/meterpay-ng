@@ -104,7 +104,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(identity): bootstrap the first admin from the environment`
 - [x] **M3-07 Trial balance.** `GET /admin/ledger/trial-balance` and scheduled imbalance check emitting metric.
   - Commit: `feat(ledger): add trial balance and imbalance monitor`
-- [ ] **M3-08 ADR-0003 and ADR-0007.**
+- [x] **M3-08 ADR-0003 and ADR-0007.**
   - Commit: `docs(adr): record ledger and idempotency decisions`
 
 ## M4: Payments (weeks 5 to 6)
