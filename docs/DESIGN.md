@@ -183,9 +183,9 @@ A landlord can withdraw a version only before it starts (not built yet, M7-04a).
 **journal_entries**: `entry_type` (WALLET_TOPUP, ENERGY_PURCHASE, REFUND, ADJUSTMENT), `reference_type`, `reference_id` (both or neither), `idempotency_key UNIQUE` (not blank), `description`, `posted_at`
 **postings**: `journal_entry_id`, `account_id`, `direction` (DEBIT, CREDIT), `amount_kobo > 0`
 
-**payment_intents**: `tenant_id`, `amount_kobo`, `status`, `idempotency_key UNIQUE`, `gateway`, `gateway_reference UNIQUE`, `authorization_url`, `failure_reason`, `paid_at`
-**payment_events**: append-only log of every gateway interaction (`intent_id`, `event_type`, `payload JSONB`, `correlation_id`)
-**webhook_receipts**: `gateway`, `event_id UNIQUE`, `signature_valid`, `payload JSONB`, `processed_at`
+**payment_intents**: `tenant_id`, `amount_kobo > 0`, `status`, `idempotency_key UNIQUE` (64 hex characters, see 7.1), `gateway` (PAYSTACK), `gateway_reference UNIQUE NULL`, `authorization_url`, `failure_reason`, `paid_at`, `version`. CHECKs tie the fields to the state: `paid_at` is set exactly when PAID or REFUNDED, `failure_reason` exactly when FAILED, and `authorization_url` from PAYMENT_PENDING on.
+**payment_events**: append-only log of every gateway interaction (`intent_id` NULL when a message matches no intent, `event_type`, `payload JSONB`, `correlation_id`). A statement trigger refuses UPDATE and DELETE, as for the ledger.
+**webhook_receipts**: `gateway`, `event_id`, `signature_valid`, `payload JSONB`, `received_at`, `processed_at`. Unique on (`gateway`, `event_id`) among correctly signed receipts only: a unique key over all receipts would let a forged webhook carrying a real event id arrive first and make the genuine one look like a repeat. A badly signed receipt can never be marked processed (CHECK).
 
 **energy_purchases**: `tenant_id`, `meter_id`, `amount_kobo`, `vat_basis_points`, `vat_kobo`, `fee_kobo`, `net_kobo`, `energy_wh`, `tariff_version_id`, `journal_entry_id`, `idempotency_key UNIQUE`, `status` (COMPLETED, CREDIT_PUSH_PENDING, CREDIT_PUSHED)
 **meter_credit_entries**: append-only. `meter_id`, `type` (PURCHASE, CONSUMPTION, ADJUSTMENT), `delta_wh` (signed), `balance_after_wh`, `reference_id`
@@ -251,7 +251,7 @@ PAID --refund issued--> REFUNDED
 ```
 
 - The intent row is created and committed BEFORE calling Paystack.
-- `idempotency_key` = SHA-256(`tenant_id` + client `Idempotency-Key` header). Enforced by the UNIQUE constraint, not by check-then-insert. A duplicate insert returns the existing intent.
+- `idempotency_key` = SHA-256 hex of `tenant_id` + `:` + the client's `Idempotency-Key` header (at most 255 characters). Enforced by the UNIQUE constraint, not by check-then-insert. A duplicate insert returns the existing intent.
 - Transitions are guarded in one place (`PaymentIntent.transitionTo`). Illegal transitions throw `IllegalStateTransitionException` (409).
 - PAID is reached at most once. The wallet credit posting uses `idempotency_key = "topup:" + intent_id`, so even a double webhook cannot double-credit.
 

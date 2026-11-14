@@ -109,7 +109,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
 
 ## M4: Payments (weeks 5 to 6)
 
-- [ ] **M4-01 Payment intent model.** Migrations for `payment_intents`, `payment_events`, `webhook_receipts`. State machine with guarded transitions and tests.
+- [x] **M4-01 Payment intent model.** Migrations for `payment_intents`, `payment_events`, `webhook_receipts`. State machine with guarded transitions and tests.
   - Commit: `feat(payment): add payment intent state machine`
 - [ ] **M4-02 PaymentGateway port and Paystack adapter.** Initialize and verify calls with timeouts, mapped errors. WireMock tests for success, 4xx, 5xx, timeout.
   - Commit: `feat(payment): add paystack gateway adapter`
