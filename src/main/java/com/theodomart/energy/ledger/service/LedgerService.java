@@ -20,6 +20,12 @@ public interface LedgerService {
 	 */
 	JournalEntryView post(JournalEntryCommand command);
 
+	/**
+	 * Every account type's total, the two sides of the books, and whether each account still matches its postings,
+	 * all from one snapshot of the database. For admins only: the controller enforces that.
+	 */
+	TrialBalanceView trialBalance();
+
 	/** The tenant's own wallet. Every tenant has one from registration (M3-02). */
 	WalletView wallet(UUID tenantId);
 

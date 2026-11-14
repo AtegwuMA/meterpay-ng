@@ -4,6 +4,7 @@ import com.theodomart.energy.common.error.IdempotencyConflictException;
 import com.theodomart.energy.ledger.domain.JournalEntry;
 import com.theodomart.energy.ledger.domain.LedgerAccount;
 import com.theodomart.energy.ledger.domain.Posting;
+import com.theodomart.energy.ledger.repository.AccountTypeTotal;
 import com.theodomart.energy.ledger.repository.JournalEntryRepository;
 import com.theodomart.energy.ledger.repository.LedgerAccountRepository;
 import com.theodomart.energy.ledger.repository.PostingRepository;
@@ -14,10 +15,12 @@ import com.theodomart.energy.ledger.service.Direction;
 import com.theodomart.energy.ledger.service.JournalEntryCommand;
 import com.theodomart.energy.ledger.service.JournalEntryView;
 import com.theodomart.energy.ledger.service.LedgerService;
+import com.theodomart.energy.ledger.service.TrialBalanceView;
 import com.theodomart.energy.ledger.service.WalletTransactionView;
 import com.theodomart.energy.ledger.service.WalletView;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -34,6 +37,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -100,6 +104,35 @@ public class LedgerServiceImpl implements LedgerService {
 				pauseBefore(attempt + 1);
 			}
 		}
+	}
+
+	// REPEATABLE_READ: the totals and the drift count come from two queries, and must describe the same moment, or a
+	// posting committing between them could make a healthy ledger look broken.
+	@Override
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	public TrialBalanceView trialBalance() {
+		Map<AccountType, AccountTypeTotal> byType = new HashMap<>();
+		accounts.totalsByType().forEach(total -> byType.put(total.type(), total));
+		long debitNormal = 0;
+		long creditNormal = 0;
+		List<TrialBalanceView.Line> lines = new java.util.ArrayList<>();
+		// Every type is listed, even with no accounts yet, so a missing platform account shows as a zero line.
+		for (AccountType type : Arrays.asList(AccountType.values())) {
+			AccountTypeTotal total = byType.get(type);
+			long count = total == null ? 0 : total.accounts();
+			long balance = total == null || total.balanceKobo() == null ? 0 : total.balanceKobo();
+			lines.add(new TrialBalanceView.Line(type, type.normalBalance(), count, balance));
+			if (type.normalBalance() == Direction.DEBIT) {
+				debitNormal = Math.addExact(debitNormal, balance);
+			}
+			else {
+				creditNormal = Math.addExact(creditNormal, balance);
+			}
+		}
+		long imbalance = Math.subtractExact(debitNormal, creditNormal);
+		long mismatched = accounts.countNotMatchingPostings();
+		return new TrialBalanceView(lines, debitNormal, creditNormal, imbalance, mismatched,
+				imbalance == 0 && mismatched == 0, clock.instant());
 	}
 
 	@Override

@@ -102,7 +102,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(ledger): expose tenant wallet balance and history`
 - [x] **M3-06a Admin bootstrap.** At startup, create the first ADMIN from `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PHONE`, `BOOTSTRAP_ADMIN_PASSWORD` when no admin exists (DESIGN §17.3). Idempotent. Fail startup if only some are set. Never log the password. Logged for now, audited from M7-04.
   - Commit: `feat(identity): bootstrap the first admin from the environment`
-- [ ] **M3-07 Trial balance.** `GET /admin/ledger/trial-balance` and scheduled imbalance check emitting metric.
+- [x] **M3-07 Trial balance.** `GET /admin/ledger/trial-balance` and scheduled imbalance check emitting metric.
   - Commit: `feat(ledger): add trial balance and imbalance monitor`
 - [ ] **M3-08 ADR-0003 and ADR-0007.**
   - Commit: `docs(adr): record ledger and idempotency decisions`

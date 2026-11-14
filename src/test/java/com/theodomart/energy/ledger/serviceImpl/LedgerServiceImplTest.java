@@ -17,6 +17,7 @@ import com.theodomart.energy.common.error.IdempotencyConflictException;
 import com.theodomart.energy.ledger.domain.JournalEntry;
 import com.theodomart.energy.ledger.domain.LedgerAccount;
 import com.theodomart.energy.ledger.domain.Posting;
+import com.theodomart.energy.ledger.repository.AccountTypeTotal;
 import com.theodomart.energy.ledger.repository.JournalEntryRepository;
 import com.theodomart.energy.ledger.repository.LedgerAccountRepository;
 import com.theodomart.energy.ledger.repository.PostingRepository;
@@ -29,6 +30,7 @@ import com.theodomart.energy.ledger.service.InsufficientWalletBalanceException;
 import com.theodomart.energy.ledger.service.JournalEntryCommand;
 import com.theodomart.energy.ledger.service.JournalEntryView;
 import com.theodomart.energy.ledger.service.PostingLine;
+import com.theodomart.energy.ledger.service.TrialBalanceView;
 import com.theodomart.energy.ledger.service.WalletTransactionView;
 import com.theodomart.energy.ledger.service.WalletView;
 import java.time.Clock;
@@ -284,6 +286,62 @@ class LedgerServiceImplTest {
 		assertThatThrownBy(() -> ledger.post(tooMuch)).isInstanceOf(InsufficientWalletBalanceException.class);
 
 		verify(entries, times(1)).insertIfAbsent(any(), any(), any(), any(), eq("short"), any(), any(), any());
+	}
+
+	@Test
+	void aBalancedLedgerListsEveryTypeAndBothSidesMatch() {
+		when(accounts.totalsByType()).thenReturn(List.of(new AccountTypeTotal(AccountType.GATEWAY_CLEARING, 1L, 500_000L),
+				new AccountTypeTotal(AccountType.TENANT_WALLET, 3L, 300_000L),
+				new AccountTypeTotal(AccountType.VAT_PAYABLE, 1L, 13_953L),
+				new AccountTypeTotal(AccountType.PLATFORM_FEE_REVENUE, 1L, 3_720L),
+				new AccountTypeTotal(AccountType.LANDLORD_REVENUE, 2L, 182_327L)));
+
+		TrialBalanceView view = ledger.trialBalance();
+
+		assertThat(view.lines()).hasSize(AccountType.values().length);
+		assertThat(view.debitNormalTotalKobo()).isEqualTo(500_000);
+		assertThat(view.creditNormalTotalKobo()).isEqualTo(500_000);
+		assertThat(view.imbalanceKobo()).isZero();
+		assertThat(view.balanced()).isTrue();
+		assertThat(view.generatedAt()).isEqualTo(NOW);
+		assertThat(view.lines()).filteredOn(line -> line.type() == AccountType.TENANT_WALLET)
+			.singleElement()
+			.satisfies(line -> {
+				assertThat(line.accounts()).isEqualTo(3);
+				assertThat(line.normalBalance()).isEqualTo(Direction.CREDIT);
+			});
+	}
+
+	@Test
+	void aTypeWithNoAccountsStillShowsAsAZeroLine() {
+		when(accounts.totalsByType()).thenReturn(List.of());
+
+		TrialBalanceView view = ledger.trialBalance();
+
+		assertThat(view.lines()).extracting(TrialBalanceView.Line::balanceKobo).containsOnly(0L);
+		assertThat(view.balanced()).isTrue();
+	}
+
+	@Test
+	void unequalSidesAreAnImbalance() {
+		when(accounts.totalsByType()).thenReturn(List.of(new AccountTypeTotal(AccountType.GATEWAY_CLEARING, 1L, 500_000L),
+				new AccountTypeTotal(AccountType.TENANT_WALLET, 1L, 500_001L)));
+
+		TrialBalanceView view = ledger.trialBalance();
+
+		assertThat(view.imbalanceKobo()).isEqualTo(-1);
+		assertThat(view.balanced()).isFalse();
+	}
+
+	@Test
+	void driftMakesTheLedgerUnbalancedEvenIfTheSidesMatch() {
+		when(accounts.totalsByType()).thenReturn(List.of());
+		when(accounts.countNotMatchingPostings()).thenReturn(1L);
+
+		TrialBalanceView view = ledger.trialBalance();
+
+		assertThat(view.accountsNotMatchingPostings()).isOne();
+		assertThat(view.balanced()).isFalse();
 	}
 
 	@Test

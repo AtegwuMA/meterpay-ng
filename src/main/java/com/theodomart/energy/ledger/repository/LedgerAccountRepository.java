@@ -17,6 +17,25 @@ import org.springframework.data.repository.query.Param;
 /** A plain Repository, not JpaRepository, so accounts have no delete methods to call (DESIGN 5.2 rule 4). */
 public interface LedgerAccountRepository extends Repository<LedgerAccount, UUID> {
 
+	@Query("""
+			SELECT new com.theodomart.energy.ledger.repository.AccountTypeTotal(a.type, COUNT(a), SUM(a.balanceKobo))
+			FROM LedgerAccount a GROUP BY a.type
+			""")
+	List<AccountTypeTotal> totalsByType();
+
+	/** Accounts whose running total no longer equals the sum of their postings, signed by normal balance. */
+	@Query(value = """
+			SELECT count(*) FROM (
+				SELECT a.id FROM ledger_accounts a
+				LEFT JOIN postings p ON p.account_id = a.id
+				GROUP BY a.id, a.type, a.balance_kobo
+				HAVING a.balance_kobo <> coalesce(sum(CASE
+					WHEN (p.direction = 'DEBIT') = (a.type = 'GATEWAY_CLEARING') THEN p.amount_kobo
+					ELSE -p.amount_kobo END), 0)
+			) drifted
+			""", nativeQuery = true)
+	long countNotMatchingPostings();
+
 	/** For reading only, without a lock. Posting never uses this: it locks first, then reads. */
 	Optional<LedgerAccount> findByTypeAndOwnerId(AccountType type, UUID ownerId);
 

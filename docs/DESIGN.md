@@ -213,6 +213,7 @@ A landlord can withdraw a version only before it starts (not built yet, M7-04a).
 - Postings and journal entries are never updated or deleted. Corrections are new reversing entries. The database enforces this with a statement trigger (V12) that refuses any UPDATE or DELETE on either table, so a script cannot break it either. TRUNCATE is still possible, and so is disabling the trigger as the table owner: production should run the application as a role that does not own these tables.
 - A TENANT_WALLET balance can never go below zero. Enforced in code under a row lock or optimistic version check, plus a DB CHECK on a constrained balance column.
 - `SUM(balance_kobo)` across accounts, signed by normal balance, is always zero. A scheduled job verifies this and raises an alert if not.
+- Every account's `balance_kobo` equals the signed sum of its own postings: the balance is a running total kept for speed, and the postings are the record. The same job counts accounts that have drifted (M3-07).
 
 **Posting (M3-03).** `LedgerService.post` checks the lines balance before anything is written, then inserts the entry and its postings, then updates each account once, with the net of its lines, in order of the account id as text (the order Postgres sorts a UUID column, so later SQL locking can use `ORDER BY id` and agree). Updates in one fixed order stop two entries over the same accounts from deadlocking. A wallet short of funds stops the whole entry with 422 `INSUFFICIENT_WALLET_BALANCE`; From M3-05a the entry's accounts are locked with `SELECT ... FOR UPDATE ORDER BY id` before any balance is read, so postings over the same accounts wait their turn instead of failing; `@Version` stays as a backstop. Every purchase locks the platform VAT and fee accounts, so purchases are serialised through those rows: throughput is bounded by how fast one posting commits, which is ample at this scale. A larger system would stop keeping a running total on platform accounts. Called on its own, `post` still runs each attempt in a new transaction and retries a concurrency failure (a lost version check or a deadlock the database broke), up to 3 attempts in all, then gives 409 `CONCURRENT_MODIFICATION`. Inside a caller's transaction it does not retry, because a failed attempt has spoiled that transaction: the caller retries its whole unit of work. `post` joins the caller's transaction, so a purchase and its entry commit together. Posting is idempotent (M3-04): the entry is inserted with `ON CONFLICT (idempotency_key) DO NOTHING` before any balance moves. If the key is taken, the existing entry is returned and nothing changes, provided the type, reference and lines match; otherwise 422 `IDEMPOTENCY_KEY_REUSED`. Catching the unique violation instead would abort the caller's transaction, which in a purchase is the purchase itself.
 
@@ -420,6 +421,8 @@ All endpoints under `/api/v1`. JSON. Pagination via `page` (default 0) and `size
 | GET | /admin/audit/verify | ADMIN: verifies hash chain |
 | GET | /admin/ledger/trial-balance | ADMIN |
 
+- `/admin/ledger/trial-balance` returns one line per account type (`type`, `normalBalance`, `accounts`, `balanceKobo`), `debitNormalTotalKobo`, `creditNormalTotalKobo`, `imbalanceKobo` (debit side minus credit side), `accountsNotMatchingPostings`, `balanced` (both zero) and `generatedAt`. Every type is listed, even with no accounts. Read from one snapshot (REPEATABLE READ), so a posting committing mid-read cannot make it look wrong.
+
 ## 10. Error handling
 
 A single `@RestControllerAdvice` maps exceptions to RFC 9457 `ProblemDetail`:
@@ -483,7 +486,7 @@ Failures inside the security filter chain never reach `@RestControllerAdvice`, s
 
 - `X-Correlation-Id` header accepted if it is 1 to 64 characters of `[A-Za-z0-9._-]`, otherwise replaced with a generated UUID (this blocks log injection). Put in MDC by a filter that runs before Spring Security, returned in responses, printed in every log line and included as `traceId` in problem details.
 - JSON logs in prod profile. Payment logs always include `intentId` and `correlationId`.
-- Metrics: `meterpay.payments.paid`, `meterpay.vends.total`, `meterpay.readings.ingested`, `meterpay.readings.lag`, `meterpay.ledger.imbalance`.
+- Metrics: `meterpay.payments.paid`, `meterpay.vends.total`, `meterpay.readings.ingested`, `meterpay.readings.lag`, `meterpay.ledger.imbalance` (kobo, 0 when the books balance), `meterpay.ledger.accounts.mismatched` (accounts whose balance has drifted from their postings). The ledger check runs every `meterpay.ledger.imbalance-check-interval` (default 5 minutes) and logs at ERROR when either is not 0, until alerting exists (M7).
 - Actuator health groups for liveness and readiness (DB, Redis, Kafka).
 
 ## 13. Testing strategy
