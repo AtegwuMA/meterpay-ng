@@ -37,6 +37,11 @@ meterpay:
   identity:
     # DESIGN 11: refresh tokens live 30 days and are rotated on every use.
     refresh-token-ttl: 30d
+    # DESIGN 17.3: all three or none. Creates the first admin at startup if there is none yet.
+    bootstrap-admin:
+      email: ${BOOTSTRAP_ADMIN_EMAIL:}
+      phone: ${BOOTSTRAP_ADMIN_PHONE:}
+      password: ${BOOTSTRAP_ADMIN_PASSWORD:}
   tariff:
     # Copied onto each new tariff version, so changing this never reprices an existing one (DESIGN 6.2).
     platform-fee-basis-points: ${TARIFF_PLATFORM_FEE_BASIS_POINTS:200}

@@ -100,7 +100,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `fix(ledger): lock accounts in id order while posting`
 - [x] **M3-06 Wallet read endpoints.** `GET /wallet`, `GET /wallet/transactions`.
   - Commit: `feat(ledger): expose tenant wallet balance and history`
-- [ ] **M3-06a Admin bootstrap.** At startup, create the first ADMIN from `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PHONE`, `BOOTSTRAP_ADMIN_PASSWORD` when no admin exists (DESIGN §17.3). Idempotent. Fail startup if only some are set. Never log the password. Logged for now, audited from M7-04.
+- [x] **M3-06a Admin bootstrap.** At startup, create the first ADMIN from `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PHONE`, `BOOTSTRAP_ADMIN_PASSWORD` when no admin exists (DESIGN §17.3). Idempotent. Fail startup if only some are set. Never log the password. Logged for now, audited from M7-04.
   - Commit: `feat(identity): bootstrap the first admin from the environment`
 - [ ] **M3-07 Trial balance.** `GET /admin/ledger/trial-balance` and scheduled imbalance check emitting metric.
   - Commit: `feat(ledger): add trial balance and imbalance monitor`
