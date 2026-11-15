@@ -254,6 +254,7 @@ PAID --refund issued--> REFUNDED
 - `idempotency_key` = SHA-256 hex of `tenant_id` + `:` + the client's `Idempotency-Key` header (at most 255 characters). Enforced by the UNIQUE constraint, not by check-then-insert. A duplicate insert returns the existing intent.
 - Transitions are guarded in one place (`PaymentIntent.transitionTo`). Illegal transitions throw `IllegalStateTransitionException` (409).
 - PAID is reached at most once. The wallet credit posting uses `idempotency_key = "topup:" + intent_id`, so even a double webhook cannot double-credit.
+- The gateway sits behind `PaymentGateway` (M4-02): `initialize` and `verify`, with a 3 s connect and 10 s read timeout and HTTP/1.1. Every failure is one `PaymentGatewayException` (502) with a fixed message, never the provider's words, plus a `retryable` flag: timeouts, refused connections, 5xx and 429 are retryable; any other 4xx and an unreadable answer are not. After a timeout the request may have reached Paystack, so the caller verifies rather than initialising again. Paystack statuses map to three outcomes: `success` is SUCCESS, `failed` and `reversed` are FAILED, and everything else (abandoned, ongoing, anything new) is PENDING, since calling an unfinished payment FAILED could refuse money that was paid. A SUCCESS without `paid_at` is not believed. `PAYSTACK_SECRET_KEY` has no default and must start with `sk_`.
 
 ### 7.2 Meter
 

@@ -1,4 +1,8 @@
 meterpay:
+  payment:
+    paystack:
+      # Not a real key. Tests never reach Paystack: the gateway is pointed at WireMock where it is exercised.
+      secret-key: sk_test_not_a_real_key
   security:
     jwt:
       # Test-only value. Real environments get theirs from JWT_SECRET.

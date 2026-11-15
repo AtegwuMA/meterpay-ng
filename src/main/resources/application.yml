@@ -42,6 +42,15 @@ meterpay:
       email: ${BOOTSTRAP_ADMIN_EMAIL:}
       phone: ${BOOTSTRAP_ADMIN_PHONE:}
       password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+  payment:
+    paystack:
+      base-url: ${PAYSTACK_BASE_URL:https://api.paystack.co}
+      # No default on purpose: without PAYSTACK_SECRET_KEY the app refuses to start (see PaystackProperties).
+      secret-key: ${PAYSTACK_SECRET_KEY:}
+      callback-url: ${PAYSTACK_CALLBACK_URL:}
+      # Short, so a slow provider cannot hold a request thread and a database connection for long.
+      connect-timeout: 3s
+      read-timeout: 10s
   ledger:
     # How often the whole ledger is checked to balance (DESIGN 6.3). ISO-8601, as @Scheduled reads it.
     imbalance-check-interval: PT5M

@@ -111,7 +111,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
 
 - [x] **M4-01 Payment intent model.** Migrations for `payment_intents`, `payment_events`, `webhook_receipts`. State machine with guarded transitions and tests.
   - Commit: `feat(payment): add payment intent state machine`
-- [ ] **M4-02 PaymentGateway port and Paystack adapter.** Initialize and verify calls with timeouts, mapped errors. WireMock tests for success, 4xx, 5xx, timeout.
+- [x] **M4-02 PaymentGateway port and Paystack adapter.** Initialize and verify calls with timeouts, mapped errors. WireMock tests for success, 4xx, 5xx, timeout.
   - Commit: `feat(payment): add paystack gateway adapter`
 - [ ] **M4-03 Top-up endpoint.** `POST /wallet/top-ups` with `Idempotency-Key` header; intent committed before gateway call; replay returns same intent; same key with different amount gives 422.
   - Commit: `feat(payment): create wallet top-up intents idempotently`
