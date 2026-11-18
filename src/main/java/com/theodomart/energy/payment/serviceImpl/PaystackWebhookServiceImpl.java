@@ -1,11 +1,6 @@
 package com.theodomart.energy.payment.serviceImpl;
 
 import com.theodomart.energy.common.error.InvalidRequestException;
-import com.theodomart.energy.ledger.service.AccountRef;
-import com.theodomart.energy.ledger.service.EntryType;
-import com.theodomart.energy.ledger.service.JournalEntryCommand;
-import com.theodomart.energy.ledger.service.LedgerService;
-import com.theodomart.energy.ledger.service.PostingLine;
 import com.theodomart.energy.payment.config.PaystackProperties;
 import com.theodomart.energy.payment.domain.GatewayProvider;
 import com.theodomart.energy.payment.domain.PaymentIntent;
@@ -23,7 +18,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -49,15 +43,11 @@ public class PaystackWebhookServiceImpl implements PaystackWebhookService {
 
 	static final String CHARGE_SUCCESS = "charge.success";
 
-	static final String TOP_UP_KEY_PREFIX = "topup:";
-
 	private static final Logger log = LoggerFactory.getLogger(PaystackWebhookServiceImpl.class);
 
 	private static final String HMAC = "HmacSHA512";
 
 	private static final int MAX_EVENT_ID_LENGTH = 200;
-
-	private static final String CURRENCY = "NGN";
 
 	private final WebhookReceiptRepository receipts;
 
@@ -65,7 +55,7 @@ public class PaystackWebhookServiceImpl implements PaystackWebhookService {
 
 	private final PaymentGateway gateway;
 
-	private final LedgerService ledger;
+	private final TopUpSettlement settlement;
 
 	private final ObjectMapper json;
 
@@ -76,12 +66,12 @@ public class PaystackWebhookServiceImpl implements PaystackWebhookService {
 	private final SecretKeySpec signingKey;
 
 	public PaystackWebhookServiceImpl(WebhookReceiptRepository receipts, PaymentIntentRepository intents,
-			PaymentGateway gateway, LedgerService ledger, ObjectMapper json, PaystackProperties properties,
+			PaymentGateway gateway, TopUpSettlement settlement, ObjectMapper json, PaystackProperties properties,
 			PlatformTransactionManager transactionManager, Clock clock) {
 		this.receipts = receipts;
 		this.intents = intents;
 		this.gateway = gateway;
-		this.ledger = ledger;
+		this.settlement = settlement;
 		this.json = json;
 		this.transactions = new TransactionTemplate(transactionManager);
 		this.clock = clock;
@@ -133,72 +123,9 @@ public class PaystackWebhookServiceImpl implements PaystackWebhookService {
 		Verification verification = gateway.verify(intentId.get().toString());
 		transactions.executeWithoutResult(status -> {
 			PaymentIntent locked = intents.findByIdForUpdate(intentId.get()).orElseThrow();
-			settle(locked, verification);
+			settlement.apply(locked, verification);
 			receipts.markProcessed(receipt.getId(), clock.instant());
 		});
-	}
-
-	/** Called under the intent's row lock, so whatever another confirmation did is already visible here. */
-	private void settle(PaymentIntent intent, Verification verification) {
-		UUID id = intent.getId();
-		switch (verification.outcome()) {
-			case SUCCESS -> {
-				if (intent.getStatus() == PaymentStatus.PAID) {
-					log.info("Top-up already paid, nothing to do: intentId={}", id);
-					return;
-				}
-				if (intent.getStatus() != PaymentStatus.PAYMENT_PENDING) {
-					// Paid at Paystack, but the intent already gave up (expired) or was never sent. Money is held
-					// for the tenant and must not vanish, but no automatic move fits: a person decides.
-					log.error("Paystack reports a payment for a top-up that is {}: intentId={} amountKobo={}",
-							intent.getStatus(), id, verification.amountKobo());
-					return;
-				}
-				String mismatch = mismatch(intent, verification);
-				if (mismatch != null) {
-					intent.markFailed(mismatch, clock.instant());
-					intents.saveAndFlush(intent);
-					log.error("Top-up failed, Paystack confirmed something else: intentId={} {}", id, mismatch);
-					return;
-				}
-				intent.markPaid(clock.instant());
-				intents.saveAndFlush(intent);
-				// Same transaction as PAID, and a key unique to the intent: even if both checks above were somehow
-				// passed twice, the ledger posts the credit once (DESIGN 7.1).
-				ledger.post(topUpEntry(intent));
-				log.info("Top-up paid and wallet credited: intentId={} amountKobo={}", id, intent.getAmount().kobo());
-			}
-			case FAILED -> {
-				if (intent.getStatus() != PaymentStatus.PAYMENT_PENDING) {
-					return;
-				}
-				intent.markFailed("Gateway reported the payment failed: " + verification.providerMessage(),
-						clock.instant());
-				intents.saveAndFlush(intent);
-				log.info("Top-up failed at the gateway: intentId={}", id);
-			}
-			// Not finished at Paystack yet. The reconciliation job asks again (M4-05).
-			case PENDING -> log.info("Top-up still pending at the gateway: intentId={}", id);
-		}
-	}
-
-	/** A "success" for another amount, currency or payment is not this payment's success. */
-	static String mismatch(PaymentIntent intent, Verification verification) {
-		if (!intent.getId().toString().equals(verification.reference())) {
-			return "Gateway confirmed reference " + verification.reference() + ", not this intent";
-		}
-		if (!CURRENCY.equals(verification.currency()) || verification.amountKobo() != intent.getAmount().kobo()) {
-			return "Gateway confirmed " + verification.amountKobo() + " kobo in " + verification.currency()
-					+ ", expected " + intent.getAmount().kobo() + " kobo in " + CURRENCY;
-		}
-		return null;
-	}
-
-	static JournalEntryCommand topUpEntry(PaymentIntent intent) {
-		return new JournalEntryCommand(EntryType.WALLET_TOPUP, TOP_UP_KEY_PREFIX + intent.getId(), "PAYMENT_INTENT",
-				intent.getId(), "Wallet top-up",
-				List.of(PostingLine.debit(AccountRef.gatewayClearing(), intent.getAmount()),
-						PostingLine.credit(AccountRef.tenantWallet(intent.getTenantId()), intent.getAmount())));
 	}
 
 	/**

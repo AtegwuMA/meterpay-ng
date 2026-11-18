@@ -51,6 +51,12 @@ meterpay:
       # Short, so a slow provider cannot hold a request thread and a database connection for long.
       connect-timeout: 3s
       read-timeout: 10s
+    # DESIGN 8.1: every 5 minutes, verify unsettled top-ups older than 10 minutes; fail pending ones unpaid at 60.
+    reconciliation:
+      interval: PT5M
+      stale-after: PT10M
+      expire-after: PT60M
+      batch-size: 100
   ledger:
     # How often the whole ledger is checked to balance (DESIGN 6.3). ISO-8601, as @Scheduled reads it.
     imbalance-check-interval: PT5M

@@ -303,7 +303,7 @@ sequenceDiagram
     A-->>P: 200
 ```
 
-Fallbacks: a reconciliation job runs every 5 minutes and verifies PAYMENT_PENDING intents older than 10 minutes. `GET /api/v1/wallet/top-ups/{id}` also triggers a verify when the intent is still pending.
+Fallbacks: a reconciliation job runs every 5 minutes and verifies PAYMENT_PENDING and INITIATED intents older than 10 minutes, oldest first, at most 100 a run (M4-05). It settles them by the same rules as the webhook (`TopUpSettlement`). A pending intent still unpaid at its final verify fails once it is 60 minutes old; one Paystack could not be asked about is never expired, and waits for the next run. An INITIATED intent never showed its payment page, so nobody can pay it: it fails once Paystack says it is not paid or does not know it. Only one instance runs the job, through a Postgres session advisory lock held on one pooled connection for the run (no extra dependency; Postgres releases it if the instance dies). `GET /api/v1/wallet/top-ups/{id}` also triggers a verify when the intent is still pending.
 
 ### 8.2 Buy energy
 

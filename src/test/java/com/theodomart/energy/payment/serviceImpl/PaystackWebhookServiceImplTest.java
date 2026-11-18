@@ -63,7 +63,7 @@ class PaystackWebhookServiceImplTest {
 	private final JsonMapper json = JsonMapper.builder().build();
 
 	private final PaystackWebhookServiceImpl webhooks = new PaystackWebhookServiceImpl(receipts, intents, gateway,
-			ledger, json, new PaystackProperties("http://paystack.invalid", SECRET, null, Duration.ofSeconds(1),
+			new TopUpSettlement(intents, ledger, Clock.fixed(NOW, ZoneOffset.UTC)), json, new PaystackProperties("http://paystack.invalid", SECRET, null, Duration.ofSeconds(1),
 					Duration.ofSeconds(1)),
 			mock(PlatformTransactionManager.class), Clock.fixed(NOW, ZoneOffset.UTC));
 
@@ -91,7 +91,7 @@ class PaystackWebhookServiceImplTest {
 		receive(charge(intent.getId().toString()));
 
 		assertThat(intent.getStatus()).isEqualTo(PaymentStatus.PAID);
-		verify(ledger).post(PaystackWebhookServiceImpl.topUpEntry(intent));
+		verify(ledger).post(TopUpSettlement.topUpEntry(intent));
 		verify(receipts).markProcessed(eq(receipt.getId()), any());
 	}
 
@@ -273,16 +273,16 @@ class PaystackWebhookServiceImplTest {
 	void aConfirmationOnlyCountsForTheSameReferenceAmountAndCurrency() {
 		String id = intent.getId().toString();
 
-		assertThat(PaystackWebhookServiceImpl.mismatch(intent, verification(id, 500_000, "NGN"))).isNull();
-		assertThat(PaystackWebhookServiceImpl.mismatch(intent, verification("other", 500_000, "NGN")))
+		assertThat(TopUpSettlement.mismatch(intent, verification(id, 500_000, "NGN"))).isNull();
+		assertThat(TopUpSettlement.mismatch(intent, verification("other", 500_000, "NGN")))
 			.contains("reference");
-		assertThat(PaystackWebhookServiceImpl.mismatch(intent, verification(id, 499_999, "NGN"))).contains("499999");
-		assertThat(PaystackWebhookServiceImpl.mismatch(intent, verification(id, 500_000, "GHS"))).contains("GHS");
+		assertThat(TopUpSettlement.mismatch(intent, verification(id, 499_999, "NGN"))).contains("499999");
+		assertThat(TopUpSettlement.mismatch(intent, verification(id, 500_000, "GHS"))).contains("GHS");
 	}
 
 	@Test
 	void aTopUpMovesMoneyFromClearingToTheWalletUnderAKeyOfItsOwn() {
-		JournalEntryCommand entry = PaystackWebhookServiceImpl.topUpEntry(intent);
+		JournalEntryCommand entry = TopUpSettlement.topUpEntry(intent);
 
 		assertThat(entry.idempotencyKey()).isEqualTo("topup:" + intent.getId());
 		assertThat(entry.referenceId()).isEqualTo(intent.getId());
