@@ -39,6 +39,9 @@ public class SecurityConfig {
 				.requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
 						"/api/v1/auth/refresh")
 				.permitAll()
+				// Paystack has no token: the service checks the body's signature instead (DESIGN 11).
+				.requestMatchers(HttpMethod.POST, "/api/v1/webhooks/paystack")
+				.permitAll()
 				.requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info")
 				.permitAll()
 				.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
