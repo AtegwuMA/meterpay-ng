@@ -404,6 +404,7 @@ All endpoints under `/api/v1`. JSON. Pagination via `page` (default 0) and `size
 | POST | /webhooks/paystack | Paystack (signature verified) |
 
 - `/wallet` returns the caller's own wallet: `balanceKobo`, `currency`, `updatedAt`. `/wallet/transactions` is paged (default size 20), newest first by `postedAt` then entry id, one row per journal entry that moved the wallet: `entryId`, `type`, `direction` (CREDIT is money in), `amountKobo` (positive), `referenceType`, `referenceId`, `description`, `postedAt`. An entry with several wallet lines shows once, with its net. There is no tenant id in either path: the wallet is the token's.
+- `POST /wallet/top-ups` body `amountKobo` (₦100 to ₦1,000,000), header `Idempotency-Key` (required, at most 255 characters). 201 with `intentId`, `status`, `amountKobo`, `authorizationUrl`, `createdAt` for a new top-up; 200 with the same body for a repeat of the same key and amount, without calling Paystack again; 422 `IDEMPOTENCY_KEY_REUSED` for the same key with another amount. The intent is committed first, then Paystack is called outside any transaction, then a second transaction records the payment page. A repeat that arrives while the first is still at Paystack gets the intent as INITIATED, without a page. If Paystack refuses (4xx), the intent is FAILED and the answer is 502; if it times out or is down, the intent stays INITIATED, because the payment may exist there, and the answer is still 502.
 
 **Vending**
 | Method | Path | Role |

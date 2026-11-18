@@ -113,12 +113,12 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(payment): add payment intent state machine`
 - [x] **M4-02 PaymentGateway port and Paystack adapter.** Initialize and verify calls with timeouts, mapped errors. WireMock tests for success, 4xx, 5xx, timeout.
   - Commit: `feat(payment): add paystack gateway adapter`
-- [ ] **M4-03 Top-up endpoint.** `POST /wallet/top-ups` with `Idempotency-Key` header; intent committed before gateway call; replay returns same intent; same key with different amount gives 422.
+- [x] **M4-03 Top-up endpoint.** `POST /wallet/top-ups` with `Idempotency-Key` header; intent committed before gateway call; replay returns same intent; same key with different amount gives 422.
   - Commit: `feat(payment): create wallet top-up intents idempotently`
 - [ ] **M4-04 Webhook receiver.** Raw body HMAC-SHA512 verification, receipt dedupe, verify transaction, mark PAID and post top-up journal entry in one transaction.
   - Done when: `duplicateWebhookCreditsWalletOnce` and `invalidSignatureIsRejected` pass.
   - Commit: `feat(payment): confirm top-ups from signed paystack webhooks`
-- [ ] **M4-05 Reconciliation job.** Every 5 minutes verify stale PAYMENT_PENDING intents; expire after 60 minutes. ShedLock (or Postgres advisory lock) so only one instance runs it.
+- [ ] **M4-05 Reconciliation job.** Every 5 minutes verify stale PAYMENT_PENDING intents; expire after 60 minutes. Also verify stale INITIATED intents: M4-03 leaves an intent INITIATED when Paystack timed out or was down, and it may still exist there. ShedLock (or Postgres advisory lock) so only one instance runs it.
   - Commit: `feat(payment): reconcile pending top-ups on a schedule`
 - [ ] **M4-06 Check-status fallback.** `GET /wallet/top-ups/{id}` verifies with gateway if still pending.
   - Commit: `feat(payment): verify pending top-up on status check`

@@ -36,7 +36,11 @@ class PaystackGatewayTest {
 
 	private static final String SECRET = "sk_test_secret_that_must_never_leak";
 
-	private static final Duration TIMEOUT = Duration.ofMillis(500);
+	/** Generous, so a busy machine cannot turn an ordinary test into a timeout. */
+	private static final Duration TIMEOUT = Duration.ofSeconds(2);
+
+	/** Short, for the tests that are about timing out. */
+	private static final Duration SHORT_TIMEOUT = Duration.ofMillis(500);
 
 	@RegisterExtension
 	static WireMockExtension paystack = WireMockExtension.newInstance().options(wireMockConfig().dynamicPort()).build();
@@ -96,9 +100,12 @@ class PaystackGatewayTest {
 	@Test
 	void aSlowAnswerTimesOutInsteadOfHoldingTheRequest() {
 		paystack.stubFor(post("/transaction/initialize").willReturn(okJson(initialized()).withFixedDelay(3_000)));
+		PaystackGateway impatient = new PaystackGateway(
+				new PaystackProperties(paystack.baseUrl(), SECRET, null, SHORT_TIMEOUT, SHORT_TIMEOUT));
 		long started = System.nanoTime();
 
-		assertThatThrownBy(() -> initialize()).isInstanceOfSatisfying(PaymentGatewayException.class, ex -> {
+		assertThatThrownBy(() -> impatient.initialize("intent-1", Money.ofKobo(500_000), "tolu@example.com"))
+			.isInstanceOfSatisfying(PaymentGatewayException.class, ex -> {
 			assertThat(ex.isRetryable()).isTrue();
 			assertThat(ex.providerStatus()).isZero();
 		});
@@ -108,7 +115,7 @@ class PaystackGatewayTest {
 	@Test
 	void aRefusedConnectionIsWorthRetrying() {
 		PaystackGateway nowhere = new PaystackGateway(
-				new PaystackProperties("http://localhost:1", SECRET, null, TIMEOUT, TIMEOUT));
+				new PaystackProperties("http://localhost:1", SECRET, null, SHORT_TIMEOUT, SHORT_TIMEOUT));
 
 		assertThatThrownBy(() -> nowhere.initialize("intent-3", Money.ofKobo(100), "a@example.com"))
 			.isInstanceOfSatisfying(PaymentGatewayException.class, ex -> assertThat(ex.isRetryable()).isTrue());
