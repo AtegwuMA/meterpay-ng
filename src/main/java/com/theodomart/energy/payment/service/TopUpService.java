@@ -15,6 +15,16 @@ public interface TopUpService {
 	 */
 	StartedTopUp start(UUID tenantId, String clientKey, Money amount);
 
+	/**
+	 * The tenant's own top-up as it stands. While it is still waiting on payment, asks Paystack first and settles it
+	 * by the webhook's rules, so a tenant back from the payment page sees PAID even if the webhook is late (DESIGN
+	 * 8.1). If Paystack cannot be asked, returns the intent as stored rather than failing.
+	 *
+	 * @throws com.theodomart.energy.common.error.ResourceNotFoundException if there is no such top-up, or it is
+	 * another tenant's
+	 */
+	TopUpView status(UUID tenantId, UUID intentId);
+
 	/** {@code created} is false when this is a repeat of an earlier request with the same key. */
 	record StartedTopUp(TopUpView topUp, boolean created) {
 

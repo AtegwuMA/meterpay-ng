@@ -3,6 +3,7 @@ package com.theodomart.energy.payment.serviceImpl;
 import com.theodomart.energy.common.domain.Money;
 import com.theodomart.energy.common.error.IdempotencyConflictException;
 import com.theodomart.energy.common.error.InvalidRequestException;
+import com.theodomart.energy.common.error.ResourceNotFoundException;
 import com.theodomart.energy.common.persistence.ConstraintViolations;
 import com.theodomart.energy.identity.service.IdentityService;
 import com.theodomart.energy.payment.domain.GatewayProvider;
@@ -11,6 +12,7 @@ import com.theodomart.energy.payment.domain.PaymentStatus;
 import com.theodomart.energy.payment.repository.PaymentIntentRepository;
 import com.theodomart.energy.payment.service.PaymentGateway;
 import com.theodomart.energy.payment.service.PaymentGateway.Initialization;
+import com.theodomart.energy.payment.service.PaymentGateway.Verification;
 import com.theodomart.energy.payment.service.PaymentGatewayException;
 import com.theodomart.energy.payment.service.TopUpService;
 import com.theodomart.energy.payment.service.TopUpView;
@@ -38,15 +40,18 @@ public class TopUpServiceImpl implements TopUpService {
 
 	private final IdentityService identity;
 
+	private final TopUpSettlement settlement;
+
 	private final TransactionTemplate transactions;
 
 	private final Clock clock;
 
 	public TopUpServiceImpl(PaymentIntentRepository intents, PaymentGateway gateway, IdentityService identity,
-			PlatformTransactionManager transactionManager, Clock clock) {
+			TopUpSettlement settlement, PlatformTransactionManager transactionManager, Clock clock) {
 		this.intents = intents;
 		this.gateway = gateway;
 		this.identity = identity;
+		this.settlement = settlement;
 		this.transactions = new TransactionTemplate(transactionManager);
 		this.clock = clock;
 	}
@@ -93,6 +98,39 @@ public class TopUpServiceImpl implements TopUpService {
 		});
 		log.info("Top-up intent pending payment: intentId={}", pending.getId());
 		return new StartedTopUp(toView(pending), true);
+	}
+
+	@Override
+	public TopUpView status(UUID tenantId, UUID intentId) {
+		PaymentIntent intent = transactions.execute(status -> intents.findById(intentId))
+			.filter(found -> found.getTenantId().equals(tenantId))
+			// Someone else's top-up looks exactly like one that does not exist (DESIGN 10).
+			.orElseThrow(() -> new ResourceNotFoundException("Top-up " + intentId + " was not found."));
+		if (intent.getStatus() != PaymentStatus.PAYMENT_PENDING) {
+			return toView(intent);
+		}
+
+		// Outside any transaction, as everywhere in this module.
+		Verification verification;
+		try {
+			verification = gateway.verify(intentId.toString());
+		}
+		catch (PaymentGatewayException ex) {
+			// The tenant asked for the status, and the stored one is still true. The webhook or the reconciliation
+			// job will settle it later.
+			log.warn("Top-up status served without a verify, gateway unavailable: intentId={} providerStatus={}",
+					intentId, ex.providerStatus());
+			return toView(intent);
+		}
+		PaymentIntent settled = transactions.execute(status -> {
+			PaymentIntent locked = intents.findByIdForUpdate(intentId).orElseThrow();
+			// A webhook may have settled it while we were asking.
+			if (locked.getStatus() == PaymentStatus.PAYMENT_PENDING) {
+				settlement.apply(locked, verification);
+			}
+			return locked;
+		});
+		return toView(settled);
 	}
 
 	/**

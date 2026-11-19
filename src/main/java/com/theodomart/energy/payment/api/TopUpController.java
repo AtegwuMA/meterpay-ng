@@ -9,11 +9,14 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -44,6 +47,12 @@ public class TopUpController {
 			@RequestHeader("Idempotency-Key") String idempotencyKey, @Valid @RequestBody TopUpRequest request) {
 		StartedTopUp started = topUps.start(user.id(), idempotencyKey, Money.ofKobo(request.amountKobo()));
 		return ResponseEntity.status(started.created() ? HttpStatus.CREATED : HttpStatus.OK).body(started.topUp());
+	}
+
+	/** Owner only: another tenant's top-up is a 404. Asks Paystack first while the payment is still pending. */
+	@GetMapping("/{intentId}")
+	public TopUpView status(@AuthenticationPrincipal CurrentUser user, @PathVariable UUID intentId) {
+		return topUps.status(user.id(), intentId);
 	}
 
 	record TopUpRequest(@NotNull @Min(MIN_KOBO) @Max(MAX_KOBO) Long amountKobo) {

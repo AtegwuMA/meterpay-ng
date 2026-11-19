@@ -2,6 +2,7 @@ package com.theodomart.energy.payment.api;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
@@ -13,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.jayway.jsonpath.JsonPath;
 import com.theodomart.energy.IntegrationTest;
 import com.theodomart.energy.payment.domain.PaymentIntent;
@@ -233,6 +235,60 @@ class TopUpIT extends IntegrationTest {
 			.contentType(MediaType.APPLICATION_JSON)
 			.content("{\"amountKobo\": 500000}")).andExpect(status().isUnauthorized());
 		PAYSTACK.verify(0, postRequestedFor(urlPathEqualTo("/transaction/initialize")));
+	}
+
+	@Test
+	void checkingAPendingTopUpAsksPaystackAndCreditsAPaidOne() throws Exception {
+		String intentId = intentIdOf(topUp(tenant, "key-" + UUID.randomUUID(), 500_000));
+		paystackVerifies(intentId, okJson("""
+				{"status": true, "data": {"status": "success", "reference": "%s", "amount": 500000,
+				"currency": "NGN", "paid_at": "2026-11-19T10:15:30.000Z", "gateway_response": "Approved"}}
+				""".formatted(intentId)));
+
+		check(tenant, intentId).andExpect(status().isOk())
+			.andExpect(jsonPath("$.intentId").value(intentId))
+			.andExpect(jsonPath("$.status").value("PAID"));
+		// Settled now, so a second look is answered from the database.
+		check(tenant, intentId).andExpect(jsonPath("$.status").value("PAID"));
+
+		assertThat(walletBalance(tenant)).isEqualTo(500_000);
+		PAYSTACK.verify(1, getRequestedFor(urlPathEqualTo("/transaction/verify/" + intentId)));
+	}
+
+	@Test
+	void checkingWhilePaystackIsDownStillAnswersWithTheStoredStatus() throws Exception {
+		String intentId = intentIdOf(topUp(tenant, "key-" + UUID.randomUUID(), 500_000));
+		paystackVerifies(intentId, aResponse().withStatus(503));
+
+		check(tenant, intentId).andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("PAYMENT_PENDING"))
+			.andExpect(jsonPath("$.authorizationUrl").value("https://checkout.paystack.com/ok"));
+	}
+
+	@Test
+	void onlyTheOwnerCanSeeATopUp() throws Exception {
+		String intentId = intentIdOf(topUp(tenant, "key-" + UUID.randomUUID(), 500_000));
+		String other = tenantToken("tenant-" + UUID.randomUUID() + "@example.com");
+
+		check(other, intentId).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("NOT_FOUND"));
+		check(tenant, UUID.randomUUID().toString()).andExpect(status().isNotFound());
+		check(landlordToken(), intentId).andExpect(status().isForbidden());
+		PAYSTACK.verify(0, getRequestedFor(urlPathEqualTo("/transaction/verify/" + intentId)));
+	}
+
+	private void paystackVerifies(String intentId, ResponseDefinitionBuilder response) {
+		PAYSTACK.stubFor(com.github.tomakehurst.wiremock.client.WireMock.get("/transaction/verify/" + intentId)
+			.willReturn(response));
+	}
+
+	private ResultActions check(String token, String intentId) throws Exception {
+		return mvc.perform(get(TOP_UPS + "/" + intentId).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+	}
+
+	private long walletBalance(String token) throws Exception {
+		Number balance = JsonPath.read(mvc.perform(get("/api/v1/wallet").header(HttpHeaders.AUTHORIZATION,
+				"Bearer " + token)).andReturn().getResponse().getContentAsString(), "$.balanceKobo");
+		return balance.longValue();
 	}
 
 	private ResultActions topUp(String token, String key, long kobo) throws Exception {

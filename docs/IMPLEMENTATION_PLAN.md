@@ -120,7 +120,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(payment): confirm top-ups from signed paystack webhooks`
 - [x] **M4-05 Reconciliation job.** Every 5 minutes verify stale PAYMENT_PENDING intents; expire after 60 minutes. Also verify stale INITIATED intents: M4-03 leaves an intent INITIATED when Paystack timed out or was down, and it may still exist there. ShedLock (or Postgres advisory lock) so only one instance runs it.
   - Commit: `feat(payment): reconcile pending top-ups on a schedule`
-- [ ] **M4-06 Check-status fallback.** `GET /wallet/top-ups/{id}` verifies with gateway if still pending.
+- [x] **M4-06 Check-status fallback.** `GET /wallet/top-ups/{id}` verifies with gateway if still pending.
   - Commit: `feat(payment): verify pending top-up on status check`
 - [ ] **M4-07 Payment logging.** Every gateway call written to `payment_events` with correlation ID.
   - Commit: `feat(payment): record every gateway interaction`
