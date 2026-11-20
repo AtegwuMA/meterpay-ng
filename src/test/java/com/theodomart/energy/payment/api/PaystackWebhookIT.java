@@ -136,6 +136,15 @@ class PaystackWebhookIT extends IntegrationTest {
 				SELECT count(*) FROM webhook_receipts
 				WHERE payload -> 'data' ->> 'reference' = ? AND signature_valid AND processed_at IS NOT NULL
 				""", Integer.class, intentId)).isOne();
+		// The log has every delivery, repeats included, and the verify calls the deliveries made.
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM payment_events WHERE intent_id = ?::uuid AND event_type = 'WEBHOOK_RECEIVED'",
+				Integer.class, intentId))
+			.isEqualTo(deliveries + 1);
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM payment_events WHERE intent_id = ?::uuid AND event_type = 'VERIFY_SUCCEEDED'",
+				Integer.class, intentId))
+			.isPositive();
 	}
 
 	@Test

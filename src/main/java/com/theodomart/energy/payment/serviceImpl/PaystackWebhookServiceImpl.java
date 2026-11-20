@@ -3,6 +3,7 @@ package com.theodomart.energy.payment.serviceImpl;
 import com.theodomart.energy.common.error.InvalidRequestException;
 import com.theodomart.energy.payment.config.PaystackProperties;
 import com.theodomart.energy.payment.domain.GatewayProvider;
+import com.theodomart.energy.payment.domain.PaymentEventType;
 import com.theodomart.energy.payment.domain.PaymentIntent;
 import com.theodomart.energy.payment.domain.PaymentStatus;
 import com.theodomart.energy.payment.domain.WebhookReceipt;
@@ -57,6 +58,8 @@ public class PaystackWebhookServiceImpl implements PaystackWebhookService {
 
 	private final TopUpSettlement settlement;
 
+	private final PaymentEventRecorder events;
+
 	private final ObjectMapper json;
 
 	private final TransactionTemplate transactions;
@@ -66,12 +69,13 @@ public class PaystackWebhookServiceImpl implements PaystackWebhookService {
 	private final SecretKeySpec signingKey;
 
 	public PaystackWebhookServiceImpl(WebhookReceiptRepository receipts, PaymentIntentRepository intents,
-			PaymentGateway gateway, TopUpSettlement settlement, ObjectMapper json, PaystackProperties properties,
+			PaymentGateway gateway, TopUpSettlement settlement, PaymentEventRecorder events, ObjectMapper json, PaystackProperties properties,
 			PlatformTransactionManager transactionManager, Clock clock) {
 		this.receipts = receipts;
 		this.intents = intents;
 		this.gateway = gateway;
 		this.settlement = settlement;
+		this.events = events;
 		this.json = json;
 		this.transactions = new TransactionTemplate(transactionManager);
 		this.clock = clock;
@@ -93,19 +97,27 @@ public class PaystackWebhookServiceImpl implements PaystackWebhookService {
 		}
 
 		WebhookReceipt receipt = record(body, event);
+		String type = text(event, "event");
+		Optional<UUID> intentId = intentIdOf(event);
+		Optional<PaymentIntent> intent = intentId.flatMap(intents::findById);
+		// Every signed delivery, repeats too: how often Paystack resends is worth knowing. The body itself is in
+		// the receipt; the log row says what we made of it.
+		events.record(intent.map(PaymentIntent::getId).orElse(null), PaymentEventType.WEBHOOK_RECEIVED,
+				json.createObjectNode()
+					.put("eventId", receipt.getEventId())
+					.put("event", type)
+					.put("reference", text(event.path("data"), "reference"))
+					.put("repeat", receipt.isProcessed()));
 		if (receipt.isProcessed()) {
 			log.info("Paystack webhook already handled: eventId={}", receipt.getEventId());
 			return;
 		}
-		String type = text(event, "event");
 		if (!CHARGE_SUCCESS.equals(type)) {
 			// Refunds, transfers and the rest are not ours to act on yet. Acknowledged, so Paystack stops sending.
 			finish(receipt, "event type " + type + " is not handled");
 			return;
 		}
 
-		Optional<UUID> intentId = intentIdOf(event);
-		Optional<PaymentIntent> intent = intentId.flatMap(intents::findById);
 		if (intent.isEmpty()) {
 			// Not ours (another integration on the same Paystack account) or nonsense. Retrying will not help.
 			log.warn("Paystack charge matches no top-up: eventId={} reference={}", receipt.getEventId(),

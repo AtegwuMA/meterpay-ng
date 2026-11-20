@@ -122,7 +122,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
   - Commit: `feat(payment): reconcile pending top-ups on a schedule`
 - [x] **M4-06 Check-status fallback.** `GET /wallet/top-ups/{id}` verifies with gateway if still pending.
   - Commit: `feat(payment): verify pending top-up on status check`
-- [ ] **M4-07 Payment logging.** Every gateway call written to `payment_events` with correlation ID.
+- [x] **M4-07 Payment logging.** Every gateway call written to `payment_events` with correlation ID.
   - Commit: `feat(payment): record every gateway interaction`
 
 ## M5: Vending and outbox (week 7)

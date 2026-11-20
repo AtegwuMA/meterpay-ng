@@ -19,6 +19,7 @@ import com.theodomart.energy.ledger.service.LedgerService;
 import com.theodomart.energy.ledger.service.PostingLine;
 import com.theodomart.energy.payment.config.PaystackProperties;
 import com.theodomart.energy.payment.domain.GatewayProvider;
+import com.theodomart.energy.payment.domain.PaymentEventType;
 import com.theodomart.energy.payment.domain.PaymentIntent;
 import com.theodomart.energy.payment.domain.PaymentStatus;
 import com.theodomart.energy.payment.domain.WebhookReceipt;
@@ -60,10 +61,12 @@ class PaystackWebhookServiceImplTest {
 
 	private final LedgerService ledger = mock();
 
+	private final PaymentEventRecorder events = mock();
+
 	private final JsonMapper json = JsonMapper.builder().build();
 
 	private final PaystackWebhookServiceImpl webhooks = new PaystackWebhookServiceImpl(receipts, intents, gateway,
-			new TopUpSettlement(intents, ledger, Clock.fixed(NOW, ZoneOffset.UTC)), json, new PaystackProperties("http://paystack.invalid", SECRET, null, Duration.ofSeconds(1),
+			new TopUpSettlement(intents, ledger, Clock.fixed(NOW, ZoneOffset.UTC)), events, json, new PaystackProperties("http://paystack.invalid", SECRET, null, Duration.ofSeconds(1),
 					Duration.ofSeconds(1)),
 			mock(PlatformTransactionManager.class), Clock.fixed(NOW, ZoneOffset.UTC));
 
@@ -93,6 +96,18 @@ class PaystackWebhookServiceImplTest {
 		assertThat(intent.getStatus()).isEqualTo(PaymentStatus.PAID);
 		verify(ledger).post(TopUpSettlement.topUpEntry(intent));
 		verify(receipts).markProcessed(eq(receipt.getId()), any());
+	}
+
+	@Test
+	void everySignedDeliveryIsLoggedAgainstItsIntentRepeatsToo() {
+		when(receipt.isProcessed()).thenReturn(true);
+
+		receive(charge(intent.getId().toString()));
+		receive(charge("T-not-ours"));
+
+		verify(events).record(eq(intent.getId()), eq(PaymentEventType.WEBHOOK_RECEIVED),
+				org.mockito.ArgumentMatchers.argThat(payload -> payload.get("repeat").asBoolean()));
+		verify(events).record(org.mockito.ArgumentMatchers.isNull(), eq(PaymentEventType.WEBHOOK_RECEIVED), any());
 	}
 
 	@Test

@@ -107,6 +107,38 @@ class TopUpIT extends IntegrationTest {
 	}
 
 	@Test
+	void everyPaystackCallIsLoggedWithTheRequestsCorrelationId() throws Exception {
+		String correlationId = "corr-" + UUID.randomUUID();
+		String intentId = intentIdOf(mvc.perform(request(TOP_UPS)
+			.header(HttpHeaders.AUTHORIZATION, "Bearer " + tenant)
+			.header("Idempotency-Key", "key-" + UUID.randomUUID())
+			.header("X-Correlation-Id", correlationId)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"amountKobo\": 500000}")).andExpect(status().isCreated()));
+
+		java.util.Map<String, Object> event = jdbc.queryForMap(
+				"SELECT event_type, correlation_id, payload::text AS payload FROM payment_events WHERE intent_id = ?::uuid",
+				intentId);
+		assertThat(event).containsEntry("event_type", "INITIALIZE_SUCCEEDED").containsEntry("correlation_id",
+				correlationId);
+		// What we sent and understood, not the tenant's details.
+		assertThat((String) event.get("payload")).contains("\"amountKobo\": 500000").doesNotContain(tenantEmail);
+	}
+
+	@Test
+	void aFailedPaystackCallIsLoggedToo() throws Exception {
+		PAYSTACK.stubFor(post("/transaction/initialize").willReturn(aResponse().withStatus(503)));
+		String key = "key-" + UUID.randomUUID();
+
+		topUp(tenant, key, 500_000).andExpect(status().isBadGateway());
+
+		assertThat(jdbc.queryForObject("""
+				SELECT e.event_type FROM payment_events e JOIN payment_intents i ON i.id = e.intent_id
+				WHERE i.idempotency_key = ?
+				""", String.class, PaymentIntent.idempotencyKeyFor(tenantId(), key))).isEqualTo("INITIALIZE_FAILED");
+	}
+
+	@Test
 	void aRetryWithTheSameKeyGetsTheSameIntentAndPaystackIsCalledOnce() throws Exception {
 		String key = "key-" + UUID.randomUUID();
 		String first = intentIdOf(topUp(tenant, key, 500_000).andExpect(status().isCreated()));
