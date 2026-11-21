@@ -5,8 +5,10 @@ import com.theodomart.energy.ledger.service.EntryType;
 import com.theodomart.energy.ledger.service.JournalEntryCommand;
 import com.theodomart.energy.ledger.service.LedgerService;
 import com.theodomart.energy.ledger.service.PostingLine;
+import com.theodomart.energy.outbox.service.OutboxWriter;
 import com.theodomart.energy.payment.domain.PaymentIntent;
 import com.theodomart.energy.payment.domain.PaymentStatus;
+import com.theodomart.energy.payment.event.WalletToppedUp;
 import com.theodomart.energy.payment.repository.PaymentIntentRepository;
 import com.theodomart.energy.payment.service.PaymentGateway.Verification;
 import java.time.Clock;
@@ -36,11 +38,14 @@ public class TopUpSettlement {
 
 	private final LedgerService ledger;
 
+	private final OutboxWriter outbox;
+
 	private final Clock clock;
 
-	public TopUpSettlement(PaymentIntentRepository intents, LedgerService ledger, Clock clock) {
+	public TopUpSettlement(PaymentIntentRepository intents, LedgerService ledger, OutboxWriter outbox, Clock clock) {
 		this.intents = intents;
 		this.ledger = ledger;
+		this.outbox = outbox;
 		this.clock = clock;
 	}
 
@@ -71,6 +76,8 @@ public class TopUpSettlement {
 				// Same transaction as PAID, and a key unique to the intent: even if both checks above were somehow
 				// passed twice, the ledger posts the credit once (DESIGN 7.1).
 				ledger.post(topUpEntry(intent));
+				// Same transaction again: other modules hear of the money exactly when it is there (DESIGN 8.1).
+				outbox.write(new WalletToppedUp(id, intent.getTenantId(), intent.getAmount().kobo(), intent.getPaidAt()));
 				log.info("Top-up paid and wallet credited: intentId={} amountKobo={}", id, intent.getAmount().kobo());
 			}
 			case FAILED -> {

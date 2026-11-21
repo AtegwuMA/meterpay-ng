@@ -20,6 +20,7 @@ import com.theodomart.energy.common.error.ResourceNotFoundException;
 import com.theodomart.energy.identity.service.IdentityService;
 import com.theodomart.energy.identity.service.UserView;
 import com.theodomart.energy.ledger.service.LedgerService;
+import com.theodomart.energy.outbox.service.OutboxWriter;
 import com.theodomart.energy.payment.domain.GatewayProvider;
 import com.theodomart.energy.payment.domain.PaymentIntent;
 import com.theodomart.energy.payment.domain.PaymentStatus;
@@ -58,10 +59,12 @@ class TopUpServiceImplTest {
 
 	private final LedgerService ledger = mock();
 
+	private final OutboxWriter outbox = mock();
+
 	private final Map<UUID, PaymentIntent> stored = new HashMap<>();
 
 	private final TopUpServiceImpl topUps = new TopUpServiceImpl(intents, gateway, identity,
-			new TopUpSettlement(intents, ledger, Clock.fixed(NOW, ZoneOffset.UTC)), mock(PlatformTransactionManager.class), Clock.fixed(NOW, ZoneOffset.UTC));
+			new TopUpSettlement(intents, ledger, outbox, Clock.fixed(NOW, ZoneOffset.UTC)), mock(PlatformTransactionManager.class), Clock.fixed(NOW, ZoneOffset.UTC));
 
 	private final UUID tenant = UUID.randomUUID();
 

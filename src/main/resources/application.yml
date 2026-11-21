@@ -16,6 +16,12 @@ spring:
       port: ${REDIS_PORT:6379}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      # The outbox relay waits for every in-sync replica, and gives up on a missing broker quickly instead of
+      # blocking a poll (and its row locks) for Kafka's default minute.
+      acks: all
+      properties:
+        max.block.ms: 10000
 
 server:
   port: ${SERVER_PORT:8080}
@@ -60,6 +66,12 @@ meterpay:
   ledger:
     # How often the whole ledger is checked to balance (DESIGN 6.3). ISO-8601, as @Scheduled reads it.
     imbalance-check-interval: PT5M
+  outbox:
+    # DESIGN 8.4: committed events reach Kafka within about a second.
+    poll-interval: PT1S
+    batch-size: 100
+    send-timeout: 10s
+    topic-partitions: 3
   tariff:
     # Copied onto each new tariff version, so changing this never reprices an existing one (DESIGN 6.2).
     platform-fee-basis-points: ${TARIFF_PLATFORM_FEE_BASIS_POINTS:200}

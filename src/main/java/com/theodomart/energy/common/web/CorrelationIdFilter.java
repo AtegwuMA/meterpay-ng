@@ -33,7 +33,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
 			throws ServletException, IOException {
-		String correlationId = resolve(request.getHeader(HEADER));
+		String correlationId = safeOrNew(request.getHeader(HEADER));
 		MDC.put(MDC_KEY, correlationId);
 		// Set before the chain runs: once the body starts streaming, headers can no longer change.
 		response.setHeader(HEADER, correlationId);
@@ -46,7 +46,11 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
 		}
 	}
 
-	private static String resolve(String incoming) {
+	/**
+	 * The incoming ID if it is a short, plain token, otherwise a new one. Public so Kafka consumers apply the same
+	 * rule to the header they read: a message is as client-controlled as a request.
+	 */
+	public static String safeOrNew(String incoming) {
 		if (incoming != null && SAFE_ID.matcher(incoming).matches()) {
 			return incoming;
 		}

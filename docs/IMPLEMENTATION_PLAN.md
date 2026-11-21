@@ -127,7 +127,7 @@ Claude Code implements that one task, runs `./mvnw verify`, commits it to `main`
 
 ## M5: Vending and outbox (week 7)
 
-- [ ] **M5-01 Outbox.** `outbox_events` table with `correlation_id NOT NULL`, `OutboxWriter` used inside business transactions (copies the ID from the MDC, generates one when there is none), relay polling with `FOR UPDATE SKIP LOCKED`, publishes to `energy.events.v1` with an `X-Correlation-Id` header, marks published. Consumers restore the header into the MDC. Also write `WalletToppedUp` in the webhook's settlement transaction (M4-04 left it out because the outbox did not exist yet).
+- [x] **M5-01 Outbox.** `outbox_events` table with `correlation_id NOT NULL`, `OutboxWriter` used inside business transactions (copies the ID from the MDC, generates one when there is none), relay polling with `FOR UPDATE SKIP LOCKED`, publishes to `energy.events.v1` with an `X-Correlation-Id` header, marks published. Consumers restore the header into the MDC. Also write `WalletToppedUp` in the webhook's settlement transaction (M4-04 left it out because the outbox did not exist yet).
   - Done when: IT proves event is not published if the business transaction rolls back.
   - Commit: `feat(outbox): add transactional outbox with kafka relay`
 - [ ] **M5-02 Meter credit ledger.** `meter_credit_entries` append-only, `MeterCreditService.apply(delta)` with optimistic locking on meter.

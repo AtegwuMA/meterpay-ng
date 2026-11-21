@@ -17,12 +17,14 @@ import com.theodomart.energy.ledger.service.Direction;
 import com.theodomart.energy.ledger.service.JournalEntryCommand;
 import com.theodomart.energy.ledger.service.LedgerService;
 import com.theodomart.energy.ledger.service.PostingLine;
+import com.theodomart.energy.outbox.service.OutboxWriter;
 import com.theodomart.energy.payment.config.PaystackProperties;
 import com.theodomart.energy.payment.domain.GatewayProvider;
 import com.theodomart.energy.payment.domain.PaymentEventType;
 import com.theodomart.energy.payment.domain.PaymentIntent;
 import com.theodomart.energy.payment.domain.PaymentStatus;
 import com.theodomart.energy.payment.domain.WebhookReceipt;
+import com.theodomart.energy.payment.event.WalletToppedUp;
 import com.theodomart.energy.payment.repository.PaymentIntentRepository;
 import com.theodomart.energy.payment.repository.WebhookReceiptRepository;
 import com.theodomart.energy.payment.service.InvalidWebhookSignatureException;
@@ -61,12 +63,14 @@ class PaystackWebhookServiceImplTest {
 
 	private final LedgerService ledger = mock();
 
+	private final OutboxWriter outbox = mock();
+
 	private final PaymentEventRecorder events = mock();
 
 	private final JsonMapper json = JsonMapper.builder().build();
 
 	private final PaystackWebhookServiceImpl webhooks = new PaystackWebhookServiceImpl(receipts, intents, gateway,
-			new TopUpSettlement(intents, ledger, Clock.fixed(NOW, ZoneOffset.UTC)), events, json, new PaystackProperties("http://paystack.invalid", SECRET, null, Duration.ofSeconds(1),
+			new TopUpSettlement(intents, ledger, outbox, Clock.fixed(NOW, ZoneOffset.UTC)), events, json, new PaystackProperties("http://paystack.invalid", SECRET, null, Duration.ofSeconds(1),
 					Duration.ofSeconds(1)),
 			mock(PlatformTransactionManager.class), Clock.fixed(NOW, ZoneOffset.UTC));
 
@@ -95,6 +99,7 @@ class PaystackWebhookServiceImplTest {
 
 		assertThat(intent.getStatus()).isEqualTo(PaymentStatus.PAID);
 		verify(ledger).post(TopUpSettlement.topUpEntry(intent));
+		verify(outbox).write(new WalletToppedUp(intent.getId(), tenant, 500_000, intent.getPaidAt()));
 		verify(receipts).markProcessed(eq(receipt.getId()), any());
 	}
 
@@ -139,6 +144,7 @@ class PaystackWebhookServiceImplTest {
 		assertThat(intent.getStatus()).isEqualTo(PaymentStatus.FAILED);
 		assertThat(intent.getFailureReason()).contains("Declined");
 		verify(ledger, never()).post(any());
+		verify(outbox, never()).write(any());
 	}
 
 	@Test

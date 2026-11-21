@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.theodomart.energy.common.domain.Money;
 import com.theodomart.energy.ledger.service.LedgerService;
+import com.theodomart.energy.outbox.service.OutboxWriter;
 import com.theodomart.energy.payment.config.ReconciliationProperties;
 import com.theodomart.energy.payment.domain.GatewayProvider;
 import com.theodomart.energy.payment.domain.PaymentIntent;
@@ -48,10 +49,12 @@ class TopUpReconciliationJobTest {
 
 	private final LedgerService ledger = mock();
 
+	private final OutboxWriter outbox = mock();
+
 	private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
 
 	private final TopUpReconciliationJob job = new TopUpReconciliationJob(intents, gateway,
-			new TopUpSettlement(intents, ledger, clock),
+			new TopUpSettlement(intents, ledger, outbox, clock),
 			new ReconciliationProperties(Duration.ofMinutes(5), Duration.ofMinutes(10), Duration.ofMinutes(60), 50),
 			mock(JdbcTemplate.class), mock(PlatformTransactionManager.class), clock);
 
